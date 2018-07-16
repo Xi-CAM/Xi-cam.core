@@ -3,7 +3,7 @@ from dask.diagnostics import visualize
 from xicam.core import msg
 from appdirs import user_config_dir
 import distributed
-
+from distributed import Queue
 
 
 class DaskExecutor(object):
@@ -15,11 +15,50 @@ class DaskExecutor(object):
         if not wf.processes:
             return {}
 
+        #dsk = dsk.convertGraphX()
+
+        dsk = wf.convertGraph()
+        print("GRAPH_EXEC", dsk[0], dsk[1])
+
+        my_queue = Queue()
+
+        print(dsk[0]["0"][0])
+        dsk[0]["0"][0].queue = my_queue
+
+        def emit(**args):
+            print("emitting")
+
+        dsk[0]["0"][0].emit = emit
+
+        result = client.get(dsk[0], dsk[1], sync=False)
+
+        len = my_queue.get()
+
+        my_queues = []
+
+        for res in range(len):
+            x = my_queue.get()
+            yres = my_queue.get()
+            print(":::", x, yres, len, res)
+
+        print("RESULT", result, my_queues)
+        for f in my_queues:
+            print(f.result())
+
+        wf.lastresult = result
+
+        return result
+
+    def execute_backup(self, wf, client=None):
+        if not wf.processes:
+            return {}
+
         if client is None:
             if self.client is None: self.client = distributed.Client()
             client = self.client
 
         dsk = wf.convertGraph()
+        #result = client.get(dsk[0], dsk[1])
 
         # with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
         result = client.get(dsk[0], dsk[1])
@@ -28,8 +67,6 @@ class DaskExecutor(object):
         # path = user_config_dir('xicam/profile.html')
         # visualize([prof, rprof, cprof], show=False, file_path=path)
         # msg.logMessage(f'Profile saved: {path}')
-
-
 
         wf.lastresult = result
 
