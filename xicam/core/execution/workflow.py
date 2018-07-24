@@ -39,9 +39,9 @@ class WorkflowProcess():
         #    print(args[0]["tomo"].value, args[0]["darks"].value, args[0]["flats"].value)
         #    print(self.node.inputs["tomo"].value, self.node.inputs["darks"].value, self.node.inputs["flats"].value)
 
-        print(self.node, "meow")
+        print(self.node, "action")
         self.node.evaluate()
-        print(self.node, "non-meow")
+        print(self.node, "finished action")
         gc.collect()
 
         return self.node.outputs
@@ -63,41 +63,41 @@ class WorkflowExecuteProcess():
         import gc
 
         from distributed import worker_client, get_client, secede, rejoin
+        from distributed import fire_and_forget
 
         client = get_client()
 
         wf = WorkflowProcess(self.node, None)
         res = client.submit(wf, None)
 
-        #res = client.scatter(self.node.outputs)
-
+        #out = res.result()
         res2 = client.submit(self.graph["0"][0], [res, ], priority=self.priority)
-        res3 = client.submit(self.graph["1"][0], [res2, ], priority=self.priority)
-        res4 = client.submit(self.graph["2"][0], [res3, ], priority=self.priority)
-        res5 = client.submit(self.graph["3"][0], [res4, res], priority=self.priority)
-        res6 = client.submit(self.graph["4"][0], [res5, ], priority=self.priority)
-        res7 = client.submit(self.graph["5"][0], [res6, ], priority=self.priority)
+        #res3 = client.submit(self.graph["1"][0], [res2, ], priority=self.priority)
+        #res4 = client.submit(self.graph["2"][0], [res3, ], priority=self.priority)
+        #res5 = client.submit(self.graph["3"][0], [res4, res], priority=self.priority)
+        #res6 = client.submit(self.graph["4"][0], [res5, ], priority=self.priority)
+        #res7 = client.submit(self.graph["5"][0], [res6, ], priority=self.priority)
 
-        #print("here???")
-        #secede()
-        #client.gather([res, res2, res3, res4, res5, res6, res7])
-        #rejoin()
+        #out = res7.result()
 
-        out = res7.result()
-        #print("BOB", out)
+        #print(out)
 
-        client.cancel(res)
-        client.cancel(res2)
-        client.cancel(res3)
-        client.cancel(res4)
-        client.cancel(res5)
-        client.cancel(res6)
-        client.cancel(res7)
+        #client.cancel(res)
+        #client.cancel(res2)
+        #client.cancel(res3)
+        #client.cancel(res4)
+        #client.cancel(res5)
+        #client.cancel(res6)
+        #client.cancel(res7)
 
-        del res, res2, res3, res4, res5, res6, res7
+        #del res, res2, res3, res4, res5, res6, res7
+
+        #out = res.result()
+        #self.node.evaluate()
+        #out = self.node.outputs
 
         gc.collect()
-        return out
+        return res2
 
     def __repr__(self):
         return self.node.__class__.__name__ + str("_REG")
@@ -131,14 +131,51 @@ class WorkflowStreamProcess(object):
 
     def __call__(self, *args, **kwargs):
         import gc
-        self.queue.put(self.node.len())
+        #self.queue.put(self.node.len())
 
         from distributed import get_client, secede, rejoin
+        from dask.distributed import fire_and_forget
+
         import cloudpickle
 
         client = get_client()
 
         tasks = []
+
+        import time
+
+        for i, result in enumerate(self.node.emit()):
+            print(i, result)
+            graph = cloudpickle.dumps(self.graph)
+            graph = cloudpickle.loads(graph)
+
+            node = graph["6"][0].node
+
+            for input in result:
+                node.inputs[input[0]].value = input[1]
+
+            #print("NODE", node, graph, result)
+            #node.evaluate()
+            #print("OUT:", node.outputs)
+
+            wf = WorkflowExecuteProcess(i, node, graph, self.start_tasks)
+            res = client.submit(wf, None, priority=i)
+            fire_and_forget(res)
+            #tasks.append(res)
+
+            #ret = res.result()
+            #print("RES:", ret)
+            #tasks.append(ret)
+
+            gc.collect()
+
+        print("LEN:", len(tasks))
+
+        for f in tasks:
+            print("GETTING", f)
+            print(f.result())
+
+        """
         for i, result in enumerate(self.node.emit()):
 
             graph = cloudpickle.dumps(self.graph)
@@ -153,57 +190,23 @@ class WorkflowStreamProcess(object):
             #node.evaluate()
 
             wf = WorkflowExecuteProcess(i, node, graph, self.start_tasks)
-            res = client.submit(wf, None, priority=i)
+            #res = client.submit(wf, None, priority=i)
 
-            self.queue.put(node.inputs["sinoindex"].value)
+            #self.queue.put(node.inputs["sinoindex"].value)
 
-            print("RES", res)
+            #print("RES", res)
 
-            out = res.result()
-            print("OUT", out)
-            self.queue.put("BOB")
+            #out = res.result()
+            node.evaluate()
+            out = node.outputs
+
+            #print("OUT", out)
+
+            #self.queue.put("BOB")
 
             gc.collect()
 
-            """
-            
-            wf = WorkflowExecuteProcess(node, self.graph, self.start_tasks)
-            res = client.submit(wf, None)
-            print(res.result())
-            out = res.result()
-
-            client.cancel(res)
-            del res
-            self.queue.put(len(out["recon"].value))
-            #tasks.append(res)
-            """
-
-
-            """
-            wf = WorkflowProcess(self.node, None)
-
-            res = client.submit(wf, None)
-            self.queue.put(res)
-
-            res2 = client.submit(self.graph["0"][0], [res,])
-            self.queue.put(res2)
-
-            res3 = client.submit(self.graph["1"][0], [res2,])
-            self.queue.put(res3)
-
-            res4 = client.submit(self.graph["2"][0], [res3,])
-            self.queue.put(res4)
-
-            res5 = client.submit(self.graph["3"][0], [res4, res])
-            self.queue.put(res5)
-
-            res6 = client.submit(self.graph["4"][0], [res5,])
-            self.queue.put(res6)
-
-            res7 = client.submit(self.graph["5"][0], [res6,])
-            self.queue.put(res7)
-
-            """
+        """
         #secede()
         #client.gather(tasks)
         #rejoin()

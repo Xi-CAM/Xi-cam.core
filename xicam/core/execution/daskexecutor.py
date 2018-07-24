@@ -17,13 +17,16 @@ class DaskExecutor(object):
 
         #dsk = dsk.convertGraphX()
 
+        #scheduler = distributed.LocalCluster(processes=False)
+        #client = distributed.Client(scheduler)
+
         dsk = wf.convertGraph()
         print("GRAPH_EXEC", dsk[0], dsk[1])
 
-        my_queue = Queue()
+        #my_queue = Queue()
 
         print(dsk[0]["0"][0])
-        dsk[0]["0"][0].queue = my_queue
+        #dsk[0]["0"][0].queue = my_queue
 
         def emit(**args):
             print("emitting")
@@ -32,10 +35,11 @@ class DaskExecutor(object):
 
         result = client.get(dsk[0], dsk[1], sync=False)
 
-        len = my_queue.get()
+        #len = my_queue.get()
 
         my_queues = []
 
+        """
         for res in range(len):
             x = my_queue.get()
             yres = my_queue.get()
@@ -44,6 +48,10 @@ class DaskExecutor(object):
         print("RESULT", result, my_queues)
         for f in my_queues:
             print(f.result())
+
+        """
+        print("HERE", result)
+        print("HERE", result[0].result())
 
         wf.lastresult = result
 
