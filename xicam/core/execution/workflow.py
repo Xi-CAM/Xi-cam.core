@@ -19,7 +19,7 @@ class WorkflowProcess():
 
         self.queue = None
 
-    def __call__(self, args):
+    def __call__(self, *args):
         import gc
         assigned = []
         if args is not None and len(args) > 0:
@@ -27,22 +27,22 @@ class WorkflowProcess():
                 # self.node.inputs[self.named_args[i]].value = args[i][0].value
                 for key in args[i].keys():
                     if key in self.named_args:
-                        #msg.logMessage(
+                        # msg.logMessage(
                         #     f'Setting input {self.node.__class__.__name__}:{self.named_args[key]} to output {args[i][key].value}',
                         #     level=msg.DEBUG)
                         self.node.inputs[self.named_args[key]].value = args[i][key].value
                         assigned.append(key)
 
-        #print("ASSIGNED:", assigned, self.node, self.node.inputs)
+        # print("ASSIGNED:", assigned, self.node, self.node.inputs)
 
-        #if self.__repr__() == "Normalize_REG":
+        # if self.__repr__() == "Normalize_REG":
         #    print(args[0]["tomo"].value, args[0]["darks"].value, args[0]["flats"].value)
         #    print(self.node.inputs["tomo"].value, self.node.inputs["darks"].value, self.node.inputs["flats"].value)
 
         print(self.node, "action")
         self.node.evaluate()
         print(self.node, "finished action")
-        gc.collect()
+        # gc.collect()
 
         return self.node.outputs
 
@@ -51,11 +51,12 @@ class WorkflowProcess():
 
 
 class WorkflowExecuteProcess():
-    def __init__(self, i, node, graph, start_tasks):
+    def __init__(self, i, node, graph, start_tasks, max_length):
         self.priority = i
         self.node = node
         self.graph = graph
         self.start_tasks = start_tasks
+        self.max_length = max_length
 
         self.node.__internal_data__ = self
 
@@ -65,39 +66,40 @@ class WorkflowExecuteProcess():
         from distributed import worker_client, get_client, secede, rejoin
         from distributed import fire_and_forget
 
-        client = get_client()
+        import distributed
+        client = get_client()  # type: distribute.client
 
         wf = WorkflowProcess(self.node, None)
-        res = client.submit(wf, None)
+        # res = client.submit(wf)
 
-        #out = res.result()
-        res2 = client.submit(self.graph["0"][0], [res, ], priority=self.priority)
-        #res3 = client.submit(self.graph["1"][0], [res2, ], priority=self.priority)
-        #res4 = client.submit(self.graph["2"][0], [res3, ], priority=self.priority)
-        #res5 = client.submit(self.graph["3"][0], [res4, res], priority=self.priority)
-        #res6 = client.submit(self.graph["4"][0], [res5, ], priority=self.priority)
-        #res7 = client.submit(self.graph["5"][0], [res6, ], priority=self.priority)
+        # out = res.result()
+        # res2 = client.submit(self.graph["0"][0])
+        # res3 = client.submit(self.graph["1"][0], [res2, ] )
+        # res4 = client.submit(self.graph["2"][0], [res2, ] )
+        # res5 = client.submit(self.graph["3"][0], [res4, res] )
+        # res6 = client.submit(self.graph["4"][0], [res5, ] )
+        # res7 = client.submit(self.graph["5"][0], [res6, ] )
 
-        #out = res7.result()
+        # out = res2.result()
 
-        #print(out)
+        # print(out)
 
-        #client.cancel(res)
-        #client.cancel(res2)
-        #client.cancel(res3)
-        #client.cancel(res4)
-        #client.cancel(res5)
-        #client.cancel(res6)
-        #client.cancel(res7)
+        # client.cancel(res)
+        # client.cancel(res2)
+        # client.cancel(res3)
+        # client.cancel(res4)
+        # client.cancel(res5)
+        # client.cancel(res6)
+        # client.cancel(res7)
 
-        #del res, res2, res3, res4, res5, res6, res7
+        # del res, res2, res3, res4, res5, res6, res7
 
-        #out = res.result()
-        #self.node.evaluate()
-        #out = self.node.outputs
+        # out = res.result()
+        # self.node.evaluate()
+        # out = self.node.outputs
 
-        gc.collect()
-        return res2
+        # gc.collect()
+        return out
 
     def __repr__(self):
         return self.node.__class__.__name__ + str("_REG")
@@ -114,8 +116,8 @@ class WorkflowStreamProcess(object):
 
         self.queue = None
 
-    #@classmethod
-    #def emit(**args):
+    # @classmethod
+    # def emit(**args):
     #    pass
 
     def flatten(self, seq, container=list):
@@ -131,7 +133,7 @@ class WorkflowStreamProcess(object):
 
     def __call__(self, *args, **kwargs):
         import gc
-        #self.queue.put(self.node.len())
+        # self.queue.put(self.node.len())
 
         from distributed import get_client, secede, rejoin
         from dask.distributed import fire_and_forget
@@ -154,26 +156,44 @@ class WorkflowStreamProcess(object):
             for input in result:
                 node.inputs[input[0]].value = input[1]
 
-            #print("NODE", node, graph, result)
-            #node.evaluate()
-            #print("OUT:", node.outputs)
+            # print("NODE", node, graph, result)
+            # node.evaluate()
+            # print("OUT:", node.outputs)
 
-            wf = WorkflowExecuteProcess(i, node, graph, self.start_tasks)
-            res = client.submit(wf, None, priority=i)
-            fire_and_forget(res)
-            #tasks.append(res)
+            # wf = WorkflowExecuteProcess(i, node, graph, self.start_tasks, self.node.len())
+            wf = WorkflowProcess(node, None)
+            res = client.submit(wf)
+            res2 = client.submit(self.graph["0"][0], res)
+            # res3 = client.submit(self.graph["1"][0], [res2, ])
+            # res4 = client.submit(self.graph["2"][0], res2)
+            # res5 = client.submit(self.graph["3"][0], res4, res)
+            # res6 = client.submit(self.graph["4"][0], res5)
+            # res7 = client.submit(self.graph["5"][0], res6)
+            time.sleep(.1)
+            # fire_and_forget(res)
 
-            #ret = res.result()
-            #print("RES:", ret)
-            #tasks.append(ret)
+            for i, task in enumerate(tasks):
+                if task.done():
+                    del tasks[i]
 
-            gc.collect()
+            tasks.append(res)
+            tasks.append(res2)
+            # tasks.append(res4)
+            # tasks.append(res5)
+            # tasks.append(res6)
+            # tasks.append(res7)
+
+            # ret = res.result()
+            # print("RES:", ret)
+            # tasks.append(ret)
+
+            # gc.collect()
 
         print("LEN:", len(tasks))
 
-        for f in tasks:
-            print("GETTING", f)
-            print(f.result())
+        # for f in tasks:
+        #     print("GETTING", f)
+        #     print(f.result())
 
         """
         for i, result in enumerate(self.node.emit()):
@@ -207,9 +227,9 @@ class WorkflowStreamProcess(object):
             gc.collect()
 
         """
-        #secede()
-        #client.gather(tasks)
-        #rejoin()
+        # secede()
+        client.gather(tasks)
+        # rejoin()
         return self.node.len()
 
     def __repr__(self):

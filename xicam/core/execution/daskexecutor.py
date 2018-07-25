@@ -51,7 +51,7 @@ class DaskExecutor(object):
 
         """
         print("HERE", result)
-        print("HERE", result[0].result())
+        # print("HERE", result[0].result())
 
         wf.lastresult = result
 
