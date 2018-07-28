@@ -23,10 +23,10 @@ class DaskExecutor(object):
         dsk = wf.convertGraph()
         print("GRAPH_EXEC", dsk[0], dsk[1])
 
-        #my_queue = Queue()
+        my_queue = Queue()
 
         print(dsk[0]["0"][0])
-        #dsk[0]["0"][0].queue = my_queue
+        dsk[0]["0"][0].queue = my_queue
 
         def emit(**args):
             print("emitting")
@@ -50,6 +50,16 @@ class DaskExecutor(object):
             print(f.result())
 
         """
+
+        import cloudpickle
+
+        while True:
+            while my_queue.qsize() > 0:
+                res = my_queue.get()
+                data = cloudpickle.loads(res)
+
+                print("CLIENT", data)
+
         print("HERE", result)
         # print("HERE", result[0].result())
 

@@ -22,9 +22,13 @@ class WorkflowProcess():
     def __call__(self, *args):
         import gc
         assigned = []
-        if args is not None and len(args) > 0:
+
+        if self.named_args is not None and args is not None and len(args) > 0:
             for i in range(len(args)):
                 # self.node.inputs[self.named_args[i]].value = args[i][0].value
+                if args[i] is None:
+                    continue
+
                 for key in args[i].keys():
                     if key in self.named_args:
                         # msg.logMessage(
@@ -50,61 +54,6 @@ class WorkflowProcess():
         return self.node.__class__.__name__ + str("_REG")
 
 
-class WorkflowExecuteProcess():
-    def __init__(self, i, node, graph, start_tasks, max_length):
-        self.priority = i
-        self.node = node
-        self.graph = graph
-        self.start_tasks = start_tasks
-        self.max_length = max_length
-
-        self.node.__internal_data__ = self
-
-    def __call__(self, args):
-        import gc
-
-        from distributed import worker_client, get_client, secede, rejoin
-        from distributed import fire_and_forget
-
-        import distributed
-        client = get_client()  # type: distribute.client
-
-        wf = WorkflowProcess(self.node, None)
-        # res = client.submit(wf)
-
-        # out = res.result()
-        # res2 = client.submit(self.graph["0"][0])
-        # res3 = client.submit(self.graph["1"][0], [res2, ] )
-        # res4 = client.submit(self.graph["2"][0], [res2, ] )
-        # res5 = client.submit(self.graph["3"][0], [res4, res] )
-        # res6 = client.submit(self.graph["4"][0], [res5, ] )
-        # res7 = client.submit(self.graph["5"][0], [res6, ] )
-
-        # out = res2.result()
-
-        # print(out)
-
-        # client.cancel(res)
-        # client.cancel(res2)
-        # client.cancel(res3)
-        # client.cancel(res4)
-        # client.cancel(res5)
-        # client.cancel(res6)
-        # client.cancel(res7)
-
-        # del res, res2, res3, res4, res5, res6, res7
-
-        # out = res.result()
-        # self.node.evaluate()
-        # out = self.node.outputs
-
-        # gc.collect()
-        return out
-
-    def __repr__(self):
-        return self.node.__class__.__name__ + str("_REG")
-
-
 class WorkflowStreamProcess(object):
     def __init__(self, node, named_args, graph, start_tasks):
         self.node = node
@@ -112,7 +61,7 @@ class WorkflowStreamProcess(object):
         self.graph = graph
         self.start_tasks = start_tasks
 
-        self.node.__internal_data__ = self
+        #self.node.__internal_data__ = self
 
         self.queue = None
 
@@ -120,16 +69,55 @@ class WorkflowStreamProcess(object):
     # def emit(**args):
     #    pass
 
-    def flatten(self, seq, container=list):
-        if isinstance(seq, str):
-            yield seq
-        else:
-            for item in seq:
-                if isinstance(item, container):
-                    for item2 in flatten(item, container=container):
-                        yield item2
-                else:
-                    yield item
+    def submit_task_order(self, key, task, dependencies, task_list, task_map, graph):
+
+        # entry already exists return
+        if key in task_map:
+            return
+
+        # loop over dependencies
+        # make sure all dependencies are met
+        for dep in dependencies:
+            if dep not in task_map:
+                graph_key = dep
+                graph_task = graph[dep][0]
+                graph_deps = graph[dep][1]
+
+                self.submit_task_order(graph_key, graph_task, graph_deps, task_list, task_map, graph)
+
+        # add entry now that all dependent entries have been satisfied
+        task_map[key] = len(task_list)
+        task_list.append((task, dependencies))
+
+    def submit_tasks(self, graph):
+        """
+        generate graph for submission
+        :param graph:
+        :return:
+        """
+
+        task_map = {}
+        task_list = []
+
+        for key in graph:
+            value = graph[key]
+            task = value[0]
+            task_dependencies = value[1]
+
+            self.submit_task_order(key, task, task_dependencies, task_list, task_map, graph)
+
+        # at this point the task_list should contain the sequence to submit
+        print(task_list)
+
+        execution_list = []
+
+        for i,j in enumerate(task_list):
+            k = []
+            for val in j[1]:
+                k.append(task_map[val])
+
+            execution_list.append((j[0], k))
+        return execution_list
 
     def __call__(self, *args, **kwargs):
         import gc
@@ -146,29 +134,85 @@ class WorkflowStreamProcess(object):
 
         import time
 
+        emit_mode = 10
+
+        stream_key = None
+        for key in self.graph:
+            value = self.graph[key]
+            if self.node.name == value[0].node.name:
+                stream_key = key
+                break
+
+        print("Chosen stream key", stream_key)
+
+        output_list = []
+
         for i, result in enumerate(self.node.emit()):
-            print(i, result)
+            print(i, result, self.graph)
+
             graph = cloudpickle.dumps(self.graph)
             graph = cloudpickle.loads(graph)
 
-            node = graph["6"][0].node
+            node = graph[stream_key][0].node
 
-            for input in result:
-                node.inputs[input[0]].value = input[1]
+            # override values..
+            for inputx in result:
+                #if inputx[0] == "path":
+                #    node.inputs[inputx[0]].value = "/home/hari/test.hdf"
+                #else:
+                node.inputs[inputx[0]].value = inputx[1]
 
-            # print("NODE", node, graph, result)
-            # node.evaluate()
-            # print("OUT:", node.outputs)
+            execution_list = self.submit_tasks(graph)
 
-            # wf = WorkflowExecuteProcess(i, node, graph, self.start_tasks, self.node.len())
+            submission_list = []
+
+            for j, ep in enumerate(execution_list):
+                dep_submissions = []
+                for dep in ep[1]:
+                    dep_submissions.append(submission_list[dep])
+
+                if j == 0 and len(tasks) > emit_mode:
+                    ret_task = tasks[len(tasks) - emit_mode]
+                    dep_submissions.append(ret_task)
+
+                sl = client.submit(ep[0], *dep_submissions)
+                submission_list.append(sl)
+                tasks.append(sl)
+
+            output_list.append(submission_list[-1])
+
+            time.sleep(0.2)
+
+            for j, task in enumerate(tasks):
+                if task.done():
+                    del tasks[j]
+
+            for j, output in enumerate(output_list):
+                if output.done():
+                    #print("RECON", output)
+                    out = cloudpickle.dumps(output.result()["recon"].value)
+                    self.queue.put(out)
+                    del output_list[j]
+
+            """
             wf = WorkflowProcess(node, None)
-            res = client.submit(wf)
+
+            ret_task = None
+            if len(tasks) > emit_mode:
+                ret_task = tasks[len(tasks) - emit_mode]
+
+            if ret_task is None:
+                res = client.submit(wf)
+            else:
+                res = client.submit(wf, ret_task)
+
             res2 = client.submit(self.graph["0"][0], res)
             # res3 = client.submit(self.graph["1"][0], [res2, ])
             res4 = client.submit(self.graph["2"][0], res2)
             res5 = client.submit(self.graph["3"][0], res4, res)
             res6 = client.submit(self.graph["4"][0], res5)
             res7 = client.submit(self.graph["5"][0], res6)
+
             time.sleep(.1)
             # fire_and_forget(res)
 
@@ -182,21 +226,29 @@ class WorkflowStreamProcess(object):
             tasks.append(res5)
             tasks.append(res6)
             tasks.append(res7)
+            """
 
-            # ret = res.result()
-            # print("RES:", ret)
-            # tasks.append(ret)
-
-            # gc.collect()
+            gc.collect()
 
         while True:
             for i, task in enumerate(tasks):
                 if task.done():
                     del tasks[i]
+
+            for j, output in enumerate(output_list):
+                if output.done():
+                    #print("RECON", output)
+                    out = cloudpickle.dumps(output.result()["recon"].value)
+                    self.queue.put(out)
+                    del output_list[j]
+
             time.sleep(.2)
-            
-            if len(tasks) == 0:
+            gc.collect()
+
+            if len(tasks) == 0 or len(output_list) == 0:
                 break
+
+        self.queue.put("END")
 
         print("LEN:", len(tasks))
 
@@ -205,7 +257,7 @@ class WorkflowStreamProcess(object):
         #     print(f.result())
 
         # secede()
-        client.gather(tasks)
+        # client.gather(tasks)
         # rejoin()
         return self.node.len()
 
