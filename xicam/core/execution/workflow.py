@@ -190,8 +190,9 @@ class WorkflowStreamProcess(object):
             for j, output in enumerate(output_list):
                 if output.done():
                     #print("RECON", output)
-                    out = cloudpickle.dumps(output.result()["recon"].value)
-                    self.queue.put(out)
+                    #out = cloudpickle.dumps(output.result()["recon"].value)
+                    #self.queue.put(out)
+                    self.queue.put(output_list[j])
                     del output_list[j]
 
             """
@@ -238,8 +239,9 @@ class WorkflowStreamProcess(object):
             for j, output in enumerate(output_list):
                 if output.done():
                     #print("RECON", output)
-                    out = cloudpickle.dumps(output.result()["recon"].value)
-                    self.queue.put(out)
+                    #out = cloudpickle.dumps(output.result()["recon"].value)
+                    #self.queue.put(out)
+                    self.queue.put(output_list[j])
                     del output_list[j]
 
             time.sleep(.2)

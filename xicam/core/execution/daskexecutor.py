@@ -11,7 +11,7 @@ class DaskExecutor(object):
         super(DaskExecutor, self).__init__()
         self.client = None
 
-    def execute(self, wf, client=None):
+    def execute(self, wf, callback, client=None):
         if not wf.processes:
             return {}
 
@@ -53,12 +53,29 @@ class DaskExecutor(object):
 
         import cloudpickle
 
-        while True:
+        output_list = []
+        end_loop = False
+        while (not end_loop) or (len(output_list) > 0):
             while my_queue.qsize() > 0:
                 res = my_queue.get()
-                data = cloudpickle.loads(res)
 
-                print("CLIENT", data)
+                # not a Future, must be exit...
+                if isinstance(res, str):
+                    print("ENDING LOOP")
+                    end_loop = True
+                    break
+                else:
+                    #data = cloudpickle.loads(res)
+                    output_list.append(res)
+
+            for j, f in enumerate(output_list):
+                print("Checking:", f.done())
+                if f.done() and callback is not None:
+                    print("in here", f.result())
+                    data = f.result()["recon"].value
+                    callback(data)
+                    del output_list[j]
+            #print("CLIENT", data)
 
         print("HERE", result)
         # print("HERE", result[0].result())
