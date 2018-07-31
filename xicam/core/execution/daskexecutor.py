@@ -77,7 +77,7 @@ class DaskExecutor(object):
                     del output_list[j]
             #print("CLIENT", data)
 
-        print("HERE", result)
+        print("Finish", result)
         # print("HERE", result[0].result())
 
         wf.lastresult = result

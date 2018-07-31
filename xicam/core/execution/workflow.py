@@ -43,10 +43,10 @@ class WorkflowProcess():
         #    print(args[0]["tomo"].value, args[0]["darks"].value, args[0]["flats"].value)
         #    print(self.node.inputs["tomo"].value, self.node.inputs["darks"].value, self.node.inputs["flats"].value)
 
-        print(self.node, "action")
+        #print(self.node, "action")
         self.node.evaluate()
-        print(self.node, "finished action")
-        # gc.collect()
+        #print(self.node, "finished action")
+        gc.collect()
 
         return self.node.outputs
 
