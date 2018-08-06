@@ -1,7 +1,7 @@
 from xicam.plugins import ProcessingPlugin, Input, Output, InOut, Var
 from typing import Callable, List
-from .camlinkexecutor import CamLinkExecutor
-from .localexecutor import LocalExecutor
+#from .camlinkexecutor import CamLinkExecutor
+#from .localexecutor import LocalExecutor
 from collections import OrderedDict
 from xicam.core import msg, execution
 from xicam.gui.threads import QThreadFuture, QThreadFutureIterator
@@ -10,18 +10,16 @@ from xicam.gui.threads import QThreadFuture, QThreadFutureIterator
 # TODO: add debug flag that checks mutations by hashing inputs
 
 class WorkflowProcess():
-    def __init__(self, node, named_args, islocal=False):
+    def __init__(self, node, named_args):
         self.node = node
         self.named_args = named_args
-        self.islocal = islocal
+        #self.islocal = islocal
 
-        self.node.__internal_data__ = self
+        #self.node.__internal_data__ = self
 
-        self.queue = None
+        #self.queue = None
 
-    def __call__(self, *args):
-        import gc
-        assigned = []
+    def __call__(self, q, *args):
 
         if self.named_args is not None and args is not None and len(args) > 0:
             for i in range(len(args)):
@@ -29,24 +27,28 @@ class WorkflowProcess():
                 if args[i] is None:
                     continue
 
+                if not isinstance(args[i], dict):
+                    continue
+
                 for key in args[i].keys():
                     if key in self.named_args:
-                        # msg.logMessage(
-                        #     f'Setting input {self.node.__class__.__name__}:{self.named_args[key]} to output {args[i][key].value}',
-                        #     level=msg.DEBUG)
                         self.node.inputs[self.named_args[key]].value = args[i][key].value
-                        assigned.append(key)
 
-        # print("ASSIGNED:", assigned, self.node, self.node.inputs)
+        for output_key in self.node.outputs:
+            output = self.node.outputs[output_key]
+            if output.visualize:
+                output.queue = q
+                output.tag = self.__repr__()
 
-        # if self.__repr__() == "Normalize_REG":
-        #    print(args[0]["tomo"].value, args[0]["darks"].value, args[0]["flats"].value)
-        #    print(self.node.inputs["tomo"].value, self.node.inputs["darks"].value, self.node.inputs["flats"].value)
-
-        #print(self.node, "action")
         self.node.evaluate()
-        #print(self.node, "finished action")
-        gc.collect()
+
+        for output_key in self.node.outputs:
+            output = self.node.outputs[output_key]
+            if output.visualize:
+                output.queue = None
+                output.tag = None
+
+        #gc.collect()
 
         return self.node.outputs
 
@@ -61,13 +63,7 @@ class WorkflowStreamProcess(object):
         self.graph = graph
         self.start_tasks = start_tasks
 
-        #self.node.__internal_data__ = self
-
         self.queue = None
-
-    # @classmethod
-    # def emit(**args):
-    #    pass
 
     def submit_task_order(self, key, task, dependencies, task_list, task_map, graph):
 
@@ -107,7 +103,7 @@ class WorkflowStreamProcess(object):
             self.submit_task_order(key, task, task_dependencies, task_list, task_map, graph)
 
         # at this point the task_list should contain the sequence to submit
-        print(task_list)
+        # print(task_list)
 
         execution_list = []
 
@@ -121,20 +117,15 @@ class WorkflowStreamProcess(object):
 
     def __call__(self, *args, **kwargs):
         import gc
-        # self.queue.put(self.node.len())
-
-        from distributed import get_client, secede, rejoin
-        from dask.distributed import fire_and_forget
-
         import cloudpickle
+        from distributed import get_client
+        import time
 
         client = get_client()
 
         tasks = []
 
-        import time
-
-        emit_mode = 10
+        emit_mode = 4
 
         stream_key = None
         for key in self.graph:
@@ -143,13 +134,33 @@ class WorkflowStreamProcess(object):
                 stream_key = key
                 break
 
-        print("Chosen stream key", stream_key)
-
         output_list = []
 
-        for i, result in enumerate(self.node.emit()):
-            print(i, result, self.graph)
+        scatter_queue = client.scatter(self.queue)
 
+        print("KEY:", stream_key, ", SCATTER QUEUE:", scatter_queue)
+
+        for i, result in enumerate(self.node.emit()):
+
+            while len(output_list) >= emit_mode:
+
+                output_list_len = len(output_list)
+                for output_index in range(output_list_len):
+                    execution_list = output_list[output_list_len-output_index-1]
+
+                    all_done = True
+                    for e in execution_list:
+                        if not e.done():
+                            all_done = False
+                            break
+
+                    # remove all if done...
+                    if all_done:
+                        del output_list[output_list_len-output_index-1]
+
+                time.sleep(0.2)
+
+            print(i, result, self.graph)
             graph = cloudpickle.dumps(self.graph)
             graph = cloudpickle.loads(graph)
 
@@ -168,99 +179,37 @@ class WorkflowStreamProcess(object):
 
             for j, ep in enumerate(execution_list):
                 dep_submissions = []
+
                 for dep in ep[1]:
                     dep_submissions.append(submission_list[dep])
 
-                if j == 0 and len(tasks) > emit_mode:
-                    ret_task = tasks[len(tasks) - emit_mode]
-                    dep_submissions.append(ret_task)
-
-                sl = client.submit(ep[0], *dep_submissions)
+                sl = client.submit(ep[0], scatter_queue, *dep_submissions)
                 submission_list.append(sl)
-                tasks.append(sl)
 
-            output_list.append(submission_list[-1])
-
-            time.sleep(0.2)
-
-            for j, task in enumerate(tasks):
-                if task.done():
-                    del tasks[j]
-
-            for j, output in enumerate(output_list):
-                if output.done():
-                    #print("RECON", output)
-                    #out = cloudpickle.dumps(output.result()["recon"].value)
-                    #self.queue.put(out)
-                    self.queue.put(output_list[j])
-                    del output_list[j]
-
-            """
-            wf = WorkflowProcess(node, None)
-
-            ret_task = None
-            if len(tasks) > emit_mode:
-                ret_task = tasks[len(tasks) - emit_mode]
-
-            if ret_task is None:
-                res = client.submit(wf)
-            else:
-                res = client.submit(wf, ret_task)
-
-            res2 = client.submit(self.graph["0"][0], res)
-            # res3 = client.submit(self.graph["1"][0], [res2, ])
-            res4 = client.submit(self.graph["2"][0], res2)
-            res5 = client.submit(self.graph["3"][0], res4, res)
-            res6 = client.submit(self.graph["4"][0], res5)
-            res7 = client.submit(self.graph["5"][0], res6)
-
-            time.sleep(.1)
-            # fire_and_forget(res)
-
-            for i, task in enumerate(tasks):
-                if task.done():
-                    del tasks[i]
-
-            tasks.append(res)
-            tasks.append(res2)
-            tasks.append(res4)
-            tasks.append(res5)
-            tasks.append(res6)
-            tasks.append(res7)
-            """
-
+            output_list.append(submission_list)
             gc.collect()
 
         while True:
-            for i, task in enumerate(tasks):
-                if task.done():
-                    del tasks[i]
+            for output_index in range(output_list_len):
+                execution_list = output_list[output_list_len - output_index - 1]
 
-            for j, output in enumerate(output_list):
-                if output.done():
-                    #print("RECON", output)
-                    #out = cloudpickle.dumps(output.result()["recon"].value)
-                    #self.queue.put(out)
-                    self.queue.put(output_list[j])
-                    del output_list[j]
+                all_done = True
+                for e in execution_list:
+                    if not e.done():
+                        all_done = False
+                        break
+
+                # remove all if done...
+                if all_done:
+                    del output_list[output_list_len - output_index - 1]
 
             time.sleep(.2)
             gc.collect()
 
-            if len(tasks) == 0 or len(output_list) == 0:
+            if len(tasks) == 0 and len(output_list) == 0:
                 break
 
-        self.queue.put("END")
-
         print("LEN:", len(tasks))
-
-        # for f in tasks:
-        #     print("GETTING", f)
-        #     print(f.result())
-
-        # secede()
-        # client.gather(tasks)
-        # rejoin()
         return self.node.len()
 
     def __repr__(self):
@@ -279,6 +228,7 @@ class Workflow:
 
         self._unmatched = []
         self._streams = []
+        self._workflow = []
 
         if processes:
             self._processes.extend(processes)
@@ -301,6 +251,8 @@ class Workflow:
         auto_connect_all: bool
             If True, connects Outputs of the previously added Process to the Inputs of process, matching names and types
         """
+        self._workflow.append(("add", process, auto_connect_all))
+
         self._processes.append(process)
 
         # if a name is given
@@ -370,20 +322,21 @@ class Workflow:
         unmatched_tasks = find_unmatched_tasks()
 
         for match in unmatched_tasks:
-            self._processes.append(match)
-            self._unmatched.append(unmatched_tasks)
+            #self._processes.append(match) TODO FIX!!!!!!!!!!
+            self._unmatched.append(match)
 
         print(self._processes)
         graph = self.convertGraph()
         return graph[0], graph[1], self._unmatched
 
-    def stream(self, process1, process2):
+    def stream(self, process1, process2, gather_process=None):
         """
         stream data from process1 to process2
         :param process1:
         :param process2:
         :return:
         """
+        self._workflow.append(("stream", process1, process2, gather_process))
 
         if isinstance(process2, Workflow):
             print("IsWorkflow")
@@ -447,6 +400,19 @@ class Workflow:
         workflow = WorkflowProcess(node, named_args)
         dsk[node.id] = tuple([workflow, list(reversed(args.keys()))])
 
+    def getTasks(self):
+        #[process for process in self._processes if not process.disabled]
+        tasks = []
+        # to remove unmatched processes
+        for process in self._processes:
+            if isinstance(process, Workflow):
+                cprocs = process.getTasks()
+                tasks += cprocs
+            else:
+                tasks.append(process)
+
+        return tasks
+
     def convertGraph(self):
         """
         process from end tasks and into all dependent ones
@@ -456,8 +422,14 @@ class Workflow:
         if self.graph_exec is not None:
             return self.graph_exec
 
+        #for workflow_tasks in self._workflow:
+        #    pass
+
         for (i, node) in enumerate(self._processes):
             node.id = str(i)
+
+        for (i, node) in enumerate(self._unmatched):
+            node.id = str(i + len(self._processes))
 
         end_tasks = self.findEndTasks()
 
@@ -467,9 +439,9 @@ class Workflow:
         for task in end_tasks:
             self.generateGraph(graph, task, mapped_node)
 
-        self.graph_exec = graph, [i.id for i in end_tasks]
+        graph_exec = graph, [i.id for i in end_tasks]
 
-        return self.graph_exec
+        return graph_exec
 
     def addProcess(self, process: ProcessingPlugin, autoconnectall: bool = False):
         """
@@ -554,7 +526,9 @@ class Workflow:
 
         return res
         """
-        return [process for process in self._processes if not process.disabled]
+        tasks = self.getTasks()
+        return [process for process in tasks if not process.disabled]
+        #return [process for process in self._processes if not process.disabled]
 
     @processes.setter
     def processes(self, processes):
@@ -677,3 +651,4 @@ class Workflow:
     def update(self, *args, **kwargs):
         for observer in self._observers:
             observer()
+

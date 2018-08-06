@@ -4,6 +4,7 @@ from xicam.core import msg
 from appdirs import user_config_dir
 import distributed
 from distributed import Queue
+from .workflow import WorkflowStreamProcess
 
 
 class DaskExecutor(object):
@@ -15,29 +16,73 @@ class DaskExecutor(object):
         if not wf.processes:
             return {}
 
-        #dsk = dsk.convertGraphX()
-
-        #scheduler = distributed.LocalCluster(processes=False)
-        #client = distributed.Client(scheduler)
-
         dsk = wf.convertGraph()
         print("GRAPH_EXEC", dsk[0], dsk[1])
 
-        my_queue = Queue()
+        #my_queue = Queue()
 
-        print(dsk[0]["0"][0])
-        dsk[0]["0"][0].queue = my_queue
+        #my_queue = None
 
-        def emit(**args):
-            print("emitting")
+        my_queue_list = []
+        for key in dsk[0]:
+            if isinstance(dsk[0][key][0], WorkflowStreamProcess):
+                my_queue = Queue("MYQ")
+                my_queue_list.append(my_queue)
+                dsk[0][key][0].queue = my_queue
+                print("Auto assigning:", my_queue)
 
-        dsk[0]["0"][0].emit = emit
+        tasks = wf.getTasks()
+
+        print(tasks)
+
+        queue_map = []
+
+        queue_map.append(my_queue)
+
+        #for task in tasks:
+        #    outputs = task.outputs
+        #    for output_key in outputs:
+        #        output = outputs[output_key]
+        #        print(task, output.name, output.visualize)
+
+        #        if output.visualize is True:
+        #            output.queue = Queue()
+        #            queue_map.append(output)
+
+        # find all tasks with outputs that have callbacks
+
+        #print(dsk[0]["0"][0])
+        #dsk[0]["0"][0].queue = my_queue
+
+        #def emit(**args):
+        #    print("emitting")
+
+        #dsk[0]["0"][0].emit = emit
 
         result = client.get(dsk[0], dsk[1], sync=False)
 
         #len = my_queue.get()
 
         my_queues = []
+
+        print("RESULT!!", result)
+
+        import cloudpickle
+
+        while not result[0].done():
+            for queue_var in queue_map:
+                #queue = queue_var.queue
+                queue = queue_var
+                while queue.qsize() > 0:
+                    res = queue.get()
+                    name = res[0]
+
+                    print("GOT:", name)
+                    if callback is not None:
+                        value = res[1]
+                        data = cloudpickle.loads(value)
+                        callback(data)
+
 
         """
         for res in range(len):
@@ -51,10 +96,12 @@ class DaskExecutor(object):
 
         """
 
-        import cloudpickle
+        # import cloudpickle
 
+        """
         output_list = []
         end_loop = False
+        
         while (not end_loop) or (len(output_list) > 0):
             while my_queue.qsize() > 0:
                 res = my_queue.get()
@@ -76,6 +123,7 @@ class DaskExecutor(object):
                     callback(data)
                     del output_list[j]
             #print("CLIENT", data)
+        """
 
         print("Finish", result)
         # print("HERE", result[0].result())
