@@ -11,17 +11,44 @@ class DaskExecutor(object):
     def __init__(self):
         super(DaskExecutor, self).__init__()
         self.client = None
+        self.parameters = {}
+
+    def update_parameters(self, task, name, value):
+        if self.client is None:
+            return
+
+        parameters = {}
+        #parameters[task.name]
+
+        try:
+            print("ASD", task, name, value)
+            parameters[task.name] = (name, value)
+            self.parameters.update(parameters)
+
+            self.client.unpublish_dataset("parameters")
+            self.client.publish_dataset(parameters=self.parameters)
+        except:
+            pass
+        pass
 
     def execute(self, wf, callback, client=None):
         if not wf.processes:
             return {}
 
+        if client is None:
+            if self.client is None:
+                self.client = distributed.Client()
+            client = self.client
+        else:
+            self.client = client
+
         dsk = wf.convertGraph()
         print("GRAPH_EXEC", dsk[0], dsk[1])
 
-        #my_queue = Queue()
-
-        #my_queue = None
+        try:
+            client.publish_dataset(parameters=self.parameters)
+        except:
+            pass
 
         my_queue_list = []
         for key in dsk[0]:
@@ -81,7 +108,7 @@ class DaskExecutor(object):
                     if callback is not None:
                         value = res[1]
                         data = cloudpickle.loads(value)
-                        callback(data)
+                        callback((name, data))
 
 
         """

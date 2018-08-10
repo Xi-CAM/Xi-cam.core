@@ -21,6 +21,24 @@ class WorkflowProcess():
 
     def __call__(self, q, *args):
 
+        from distributed import get_client
+
+        client = get_client()
+
+        try:
+            params = client.get_dataset("parameters")
+            print("parameters:::", params)
+
+            if self.node.name in params:
+                mvars = params[self.node.name]
+                outputs = self.node.outputs
+                for output_key in outputs:
+                    if outputs[output_key].name == mvars[0]:
+                        outputs[output_key].visualize = mvars[1]
+        except Exception as e:
+            print("not parsing", e)
+            pass
+
         if self.named_args is not None and args is not None and len(args) > 0:
             for i in range(len(args)):
                 # self.node.inputs[self.named_args[i]].value = args[i][0].value
@@ -37,8 +55,9 @@ class WorkflowProcess():
         for output_key in self.node.outputs:
             output = self.node.outputs[output_key]
             if output.visualize:
+
                 output.queue = q
-                output.tag = self.__repr__()
+                output.tag = self.node.name + ":" + output.name
 
         self.node.evaluate()
 
