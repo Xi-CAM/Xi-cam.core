@@ -451,13 +451,7 @@ from xicam.core import msg
 
 class MetaXArray(object):
     def __init__(self, dataarray):
-        self._dtype = None
         self.dataarray = dataarray
-        self._events = None
-        self._len = None
-        self._shape = None
-        self._size = None
-        self._ndim = None
 
         for attr in ['__len__', 'size', 'ndim', 'shape', 'dtype']:
             setattr(self, attr, getattr(self.dataarray, attr))
