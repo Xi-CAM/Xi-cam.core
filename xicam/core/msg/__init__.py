@@ -1,5 +1,7 @@
 import inspect
 import logging
+import faulthandler
+import signal
 import sys
 import os
 import time
@@ -7,6 +9,7 @@ from typing import Any
 import traceback
 import threading
 from collections import defaultdict
+from qtpy.QtCore import QTimer
 from xicam.core import paths
 
 """
@@ -22,12 +25,22 @@ can be displayed in the main Xi-cam window using showProgress and showMessage.
 # GUI widgets are registered into these slots to display messages/progress
 statusbar = None
 progressbar = None
-os.makedirs(os.path.join(paths.user_cache_dir, 'logs'), exist_ok=True)
-logging.basicConfig(filename=os.path.join(paths.user_cache_dir, 'logs', 'out.log'), level=logging.DEBUG)
+os.makedirs(os.path.join(paths.user_cache_dir, "logs"), exist_ok=True)
+logging.basicConfig(filename=os.path.join(paths.user_cache_dir, "logs", "out.log"), level=logging.DEBUG)
 
-blacklist = ['fabio.edfimage', 'ipykernel.inprocess.ipkernel', 'pyFAI.azimuthalIntegrator', 'traitlets',
-             'fabio.openimage', 'fabio.fabioutils', 'PyQt5.uic.uiparser', 'yapsy', 'caproto.threading.client',
-             'caproto._circuit', 'caproto']
+blacklist = [
+    "fabio.edfimage",
+    "ipykernel.inprocess.ipkernel",
+    "pyFAI.azimuthalIntegrator",
+    "traitlets",
+    "fabio.openimage",
+    "fabio.fabioutils",
+    "PyQt5.uic.uiparser",
+    "yapsy",
+    "caproto.threading.client",
+    "caproto._circuit",
+    "caproto",
+]
 
 for modname in blacklist:
     logging.getLogger(modname).setLevel(logging.ERROR)
@@ -40,14 +53,10 @@ WARNING = logging.WARNING  # 30
 ERROR = logging.ERROR  # 40
 CRITICAL = logging.CRITICAL  # 50
 
-levels = {DEBUG: 'DEBUG',
-          INFO: 'INFO',
-          WARNING: 'WARNING',
-          ERROR: 'ERROR',
-          CRITICAL: 'CRITICAL'}
+levels = {DEBUG: "DEBUG", INFO: "INFO", WARNING: "WARNING", ERROR: "ERROR", CRITICAL: "CRITICAL"}
 
 trayicon = None
-if 'qtpy' in sys.modules:
+if "qtpy" in sys.modules:
     from qtpy.QtWidgets import QApplication
 
     if QApplication.instance():
@@ -55,7 +64,7 @@ if 'qtpy' in sys.modules:
         from qtpy.QtGui import QIcon, QPixmap
         from xicam.gui.static import path
 
-        trayicon = QSystemTrayIcon(QIcon(QPixmap(str(path('icons/xicam.gif')))))  # TODO: better icon
+        trayicon = QSystemTrayIcon(QIcon(QPixmap(str(path("icons/cpu.png")))))  # TODO: better icon
 
 _thread_count = 0
 
@@ -85,6 +94,7 @@ def showProgress(value: int, minval: int = 0, maxval: int = 100):
     """
     if progressbar:
         from .. import threads  # must be a late import
+
         threads.invoke_in_main_thread(progressbar.show)
         threads.invoke_in_main_thread(progressbar.setRange, minval, maxval)
         threads.invoke_in_main_thread(progressbar.setValue, value)
@@ -97,6 +107,7 @@ def showBusy():
     """
     if progressbar:
         from .. import threads  # must be a late import
+
         threads.invoke_in_main_thread(progressbar.show)
         threads.invoke_in_main_thread(progressbar.setRange, 0, 0)
 
@@ -116,7 +127,7 @@ showReady = hideBusy
 hideProgress = hideBusy
 
 
-def notifyMessage(*args, timeout=8000, title='', level: int = INFO):
+def notifyMessage(*args, timeout=8000, title="", level: int = INFO):
     """
     Same as logMessage, but displays to the subscribed notification system with a timeout.
 
@@ -135,14 +146,22 @@ def notifyMessage(*args, timeout=8000, title='', level: int = INFO):
     global trayicon
     if trayicon:
         icon = None
-        if level in [INFO, DEBUG]: icon = trayicon.Information
-        if level == WARNING: icon = trayicon.Warning
-        if level in [ERROR, CRITICAL]: icon = trayicon.Critical
-        if icon is None: raise ValueError('Invalid message level.')
+        if level in [INFO, DEBUG]:
+            icon = trayicon.Information
+        if level == WARNING:
+            icon = trayicon.Warning
+        if level in [ERROR, CRITICAL]:
+            icon = trayicon.Critical
+        if icon is None:
+            raise ValueError("Invalid message level.")
         trayicon.show()
         from .. import threads  # must be a late import
-        threads.invoke_in_main_thread(trayicon.showMessage, title, ''.join(args), icon, timeout)
+
+        threads.invoke_in_main_thread(trayicon.showMessage, title, "".join(args), icon, timeout)
+        threads.invoke_in_main_thread(lambda *_: QTimer.singleShot(timeout, trayicon.hide))
         # trayicon.showMessage(title, ''.join(args), icon, timeout)  # TODO: check if title and message are swapped?
+
+    logMessage(*args)
 
 
 def showMessage(*args, timeout=5, **kwargs):
@@ -161,15 +180,14 @@ def showMessage(*args, timeout=5, **kwargs):
     -------
 
     """
-    s = ' '.join(args)
+    s = " ".join(args)
     if statusbar is not None:
         statusbar.showMessage(s, timeout * 1000)
 
     logMessage(*args, **kwargs)
 
 
-def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp: str = None,
-               suppressreprint: bool = False):
+def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp: str = None, suppressreprint: bool = False):
     """
     Logs messages to logging log. Gui widgets can be subscribed to the log with:
         logging.getLogger().addHandler(callable)
@@ -192,7 +210,7 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
     """
 
     # Join the args to a string
-    s = ' '.join(map(str, args))
+    s = " ".join(map(str, args))
 
     # ATTENTION: loggername is 'intelligently' determined with inspect. You probably want to leave it None.
     if not loggername:
@@ -205,7 +223,7 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
         stdch.setLevel(level)
     except ValueError:
         level = logging.CRITICAL
-        logger.log('Unrecognized logger level for following message...', level)
+        logger.log("Unrecognized logger level for following message...", level)
     logger.addHandler(stdch)
 
     # Make timestamp
@@ -221,7 +239,7 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
         thread = str(threadIds[threading.get_ident()])
 
     # LOG IT!
-    logger.log(level, f'{timestamp} - {loggername} - {levelname} - {thread} - {s}')
+    logger.log(level, f"{timestamp} - {loggername} - {levelname} - {thread} - {s}")
 
     # Also, print message to stdout
     # try:
@@ -243,15 +261,29 @@ def logError(exception: Exception, value=None, tb=None, **kwargs):
 
     """
 
-    if not value: value = exception
-    if not tb: tb = exception.__traceback__
-    kwargs['level'] = ERROR
+    if not value:
+        value = exception
+    if not tb:
+        tb = exception.__traceback__
+    kwargs["level"] = ERROR
+    if 'loggername' not in kwargs:
+        kwargs['loggername'] = inspect.stack()[1][3]
+    logMessage("\n", "The following error was handled safely by Xi-cam. It is displayed here for debugging.", **kwargs)
     try:
-        logMessage('\n', *traceback.format_exception(exception, value, tb), **kwargs)
+        logMessage("\n", *traceback.format_exception(exception, value, tb), **kwargs)
     except AttributeError:
-        logMessage('\n', *traceback.format_exception_only(exception, value), **kwargs)
+        logMessage("\n", *traceback.format_exception_only(exception, value), **kwargs)
 
 
 import sys
 
 sys._excepthook = sys.excepthook = logError
+
+try:
+    faulthandler.enable()
+except RuntimeError:
+    faulthandler.enable(file=open(os.path.join(paths.user_cache_dir, "logs", "crash_log.log"), 'w'))
+
+# The above enables printing tracebacks during hard crashes. To see it in action, try the following lines
+# import ctypes
+# ctypes.string_at(0)
