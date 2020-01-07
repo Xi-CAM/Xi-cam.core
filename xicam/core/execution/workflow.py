@@ -1,9 +1,8 @@
-from xicam.plugins import ProcessingPlugin
-from typing import Callable, List
+from xicam.plugins import ProcessingPlugin, OperationPlugin
+from typing import Callable, List, Union
 from collections import OrderedDict
 from xicam.core import msg, execution
 from xicam.core.threads import QThreadFuture, QThreadFutureIterator
-
 
 # TODO: add debug flag that checks mutations by hashing inputs
 
@@ -18,34 +17,32 @@ class WorkflowProcess:
 
         self.node.__internal_data__ = self
 
-    def __call__(self, args):
-        if args is not None and len(args) > 0:
-            for i in range(len(args)):
-                # self.node.inputs[self.named_args[i]].value = args[i][0].value
-                for key in args[i].keys():
-                    if key in self.named_args:
-                        # msg.logMessage(
-                        #     f'Setting input {self.node.__class__.__name__}:{self.named_args[key]} to output {args[i][key].value}',
-                        #     level=msg.DEBUG)
-                        self.node.inputs[self.named_args[key]].value = args[i][key].value
+    # args = [{'name':value}]
 
-        self.node.evaluate()
+    def __call__(self, *args):
+        node_args = {}
+        for arg, (input_name, sender_operation_name) in zip(args, self.named_args.items()):
+            node_args[input_name] = arg[sender_operation_name]
 
-        return self.node.outputs
+        result_keys = self.node.output_names
+        result_values = self.node(**node_args)
+        if not isinstance(result_values, tuple): result_values = (result_values,)
+
+        return dict(zip(result_keys, result_values))
 
     def __repr__(self):
         return self.node.__class__.__name__
 
 
 class Workflow(object):
-    def __init__(self, name="", processes=None):
-        self._processes = []
+    def __init__(self, name="", operations=None):
+        self._operations = []  # type: List[OperationPlugin]
         self._observers = set()
         if name:
             self.name = name
 
-        if processes:
-            self._processes.extend(processes)
+        if operations:
+            self._operations.extend(operations)
         self.staged = False
 
         self.lastresult = []
@@ -58,90 +55,87 @@ class Workflow(object):
 
         dependent_tasks = set()
 
-        for process in self.processes:
-            for input in process.inputs.values():
-                for _, mapped_output in input._map_inputs:
-                    dependent_tasks.add(mapped_output.parent)
+        for operation in self.operations:
+            for weak_ref_operation, _, __ in operation._inbound_links:
+                dependent_tasks.add(weak_ref_operation())
 
-        end_tasks = set(self.processes) - dependent_tasks
+        end_tasks = set(self.operations) - dependent_tasks
 
         msg.logMessage("End tasks:", *[task.name for task in end_tasks], msg.DEBUG)
         return end_tasks
 
-    def generateGraph(self, dsk, node, mapped_node):
+    def generateGraph(self):
         """
         Recursive function that adds
         :param dsk:
         :param q:
-        :param node:
+        :param operation:
         :param mapped_node:
         :return:
         """
-        if node in mapped_node:
-            return
 
-        mapped_node.append(node)
+        dask_graph = {}
 
-        args = OrderedDict()
-        named_args = {}
+        for operation in self.operations:
+            links = {}
+            dependent_ids = []
+            for weak_op_ref, output_name, input_name in operation._inbound_links:
+                links[input_name] = output_name
+                dependent_ids.append(weak_op_ref().id)
+            node = WorkflowProcess(operation, links)
 
-        for inp in node.inputs.keys():
-            for input_map in node.inputs[inp]._map_inputs:
-                self.generateGraph(dsk, input_map[1].parent, mapped_node)
-                args[input_map[1].parent.id] = None
-                # named_args.append({input_map[1].name: input_map[0]})  # TODO test to make sure output is in input
-                named_args[input_map[1].name] = input_map[0]
+            dask_graph[operation.id] = (node, *dependent_ids)
 
-        workflow = WorkflowProcess(node, named_args)
-        dsk[node.id] = tuple([workflow, list(reversed(args.keys()))])
+        return dask_graph
 
     def convertGraph(self):
         """
         process from end tasks and into all dependent ones
         """
 
-        for (i, node) in enumerate(self.processes):
+        for (i, node) in enumerate(self.operations):
             node.id = str(i)
 
         end_tasks = self.findEndTasks()
 
-        graph = {}
-        mapped_node = []
+        dask_graph = self.generateGraph()
+        end_task_ids = [i.id for i in end_tasks]
 
-        for task in end_tasks:
-            self.generateGraph(graph, task, mapped_node)
+        return dask_graph, end_task_ids
 
-        return graph, [i.id for i in end_tasks]
-
-    def addProcess(self, process: ProcessingPlugin, autoconnectall: bool = False):
+    def addOperation(self, operation: Union[OperationPlugin, callable], autoconnectall: bool = False):
         """
-        Adds a Process as a child.
+        Adds a Operation as a child.
         Parameters
         ----------
-        process:    ProcessingPlugin
-            Process to add
+        operation:    OperationPlugin
+            Operation to add
         autowireup: bool
-            If True, connects Outputs of the previously added Process to the Inputs of process, matching names and types
+            If True, connects Outputs of the previously added Operation to the Inputs of operation, matching names and types
         """
-        self._processes.append(process)
-        process._workflow = self
+        if not isinstance(operation, OperationPlugin) and callable(operation):
+            operation = OperationPlugin(operation)
+
+        self._operations.append(operation)
+        operation._workflow = self
         if autoconnectall:
             self.autoConnectAll()
         self.update()
+        return operation
 
-    def insertProcess(self, index: int, process: ProcessingPlugin, autoconnectall: bool = False):
-        self._processes.insert(index, process)
-        process._workflow = self
+    def insertOperation(self, index: int, operation: OperationPlugin, autoconnectall: bool = False):
+        self._operations.insert(index, operation)
+        operation._workflow = self
         self.update()
         if autoconnectall:
             self.autoConnectAll()
 
-    def removeProcess(self, process: ProcessingPlugin = None, index=None, autoconnectall=False):
-        if not process:
-            process = self._processes[index]
-        self._processes.remove(process)
-        process.detach()
-        process._workflow = None
+    def removeOperation(self, operation: OperationPlugin = None, index=None, autoconnectall=False):
+        if not operation:
+            operation = self._operations[index]
+        self._operations.remove(operation)
+        operation.detach()
+        operation._workflow = None
         if autoconnectall:
             self.autoConnectAll()
         self.update()
@@ -149,17 +143,17 @@ class Workflow(object):
     def autoConnectAll(self):
         self.clearConnections()
 
-        # for each process
-        for inputprocess in self.processes:
+        # for each operation
+        for inputoperation in self.operations:
 
-            # for each input of given process
-            for input in inputprocess.inputs.values():
+            # for each input of given operation
+            for input in inputoperation.inputs.values():
                 bestmatch = None
                 matchness = 0
-                # Parse backwards from the given process, looking for matching outputs
-                for outputprocess in reversed(self.processes[: self.processes.index(inputprocess)]):
+                # Parse backwards from the given operation, looking for matching outputs
+                for outputoperation in reversed(self.operations[: self.operations.index(inputoperation)]):
                     # check each output
-                    for output in outputprocess.outputs.values():
+                    for output in outputoperation.outputs.values():
                         # if matching name
                         if output.name == input.name:
                             # if a name match hasn't been found
@@ -201,28 +195,28 @@ class Workflow(object):
                     #         output.connect(bestmatch)
 
     def clearConnections(self):
-        for process in self.processes:
-            process.clearConnections()
+        for operation in self.operations:
+            operation.clearConnections()
 
-    def toggleDisableProcess(self, process, autoconnectall=False):
-        process.disabled = not process.disabled
-        process.clearConnections()
+    def toggleDisableOperation(self, operation, autoconnectall=False):
+        operation.disabled = not operation.disabled
+        operation.clearConnections()
         if autoconnectall:
             self.autoConnectAll()
         self.update()
 
     @property
-    def processes(self) -> List[ProcessingPlugin]:
-        return [process for process in self._processes if not process.disabled]
+    def operations(self) -> List[OperationPlugin]:
+        return [operation for operation in self._operations if not operation.disabled]
 
-    @processes.setter
-    def processes(self, processes):
-        for process in self._processes:
-            process._workflow = None
+    @operations.setter
+    def operations(self, operations):
+        for operation in self._operations:
+            operation._workflow = None
 
-        self._processes = processes
-        for process in processes:
-            process._workflow = self
+        self._operations = operations
+        for operation in operations:
+            operation._workflow = self
         self.update()
 
     def stage(self, connection):
@@ -236,12 +230,13 @@ class Workflow(object):
             A concurrent.futures-like qthread to monitor status. Returns True if successful
         """
         self.staged = True
-        # TODO: Processes invalidate parent workflow staged attribute if data resources are modified, but not parameters
+        # TODO: Operations invalidate parent workflow staged attribute if data resources are modified, but not parameters
         # TODO: check if data is accessible from compute resource; if not -> copy data to compute resource
         # TODO: use cam-link to mirror installation of plugin packages
 
     def execute(
         self,
+            executor=None,
         connection=None,
         callback_slot=None,
         finished_slot=None,
@@ -268,8 +263,11 @@ class Workflow(object):
         if fill_kwargs:
             self.fillKwargs(**kwargs)
 
+        if executor is None:
+            executor = execution.executor
+
         future = QThreadFuture(
-            execution.executor.execute,
+            executor.execute,
             self,
             callback_slot=callback_slot,
             finished_slot=finished_slot,
@@ -280,9 +278,23 @@ class Workflow(object):
         future.start()
         return future
 
+    def execute_synchronous(self, executor, connection=None, fill_kwargs=True, **kwargs):
+        if not self.staged:
+            self.stage(connection)
+
+        if fill_kwargs:
+            self.fillKwargs(**kwargs)
+
+        if executor is None:
+            executor = execution.executor
+
+        return executor.execute(self)
+
+
     def execute_all(
         self,
         connection,
+            executor=None,
         callback_slot=None,
         finished_slot=None,
         except_slot=None,
@@ -308,12 +320,15 @@ class Workflow(object):
         if not self.staged:
             self.stage(connection)
 
+        if executor is None:
+            executor = execution.executor
+
         def executeiterator(workflow):
             for kwargvalues in zip(*kwargs.values()):
                 zipkwargs = dict(zip(kwargs.keys(), kwargvalues))
                 if fill_kwargs:
                     self.fillKwargs(**zipkwargs)
-                yield execution.executor.execute(workflow)
+                yield (executor.execute)(workflow)
 
         future = QThreadFutureIterator(
             executeiterator,
@@ -331,10 +346,8 @@ class Workflow(object):
         """
         Fills in all empty inputs with names matching keys in kwargs.
         """
-        for process in self.processes:
-            for key, input in process.inputs.items():
-                if not input._map_inputs and key in kwargs:
-                    input.value = kwargs[key]
+        for operation in self.operations:
+            operation.filled_values = kwargs
 
     def validate(self):
         """
@@ -366,12 +379,12 @@ class Workflow(object):
     @property
     def hints(self):
         hints = []
-        for process in self._processes:
-            hints.extend(process.hints)
+        for operation in self._operations:
+            hints.extend(operation.hints)
         return hints
 
     def visualize(self, canvas, **canvases):
         canvasinstances = {name: canvas() if callable(canvas) else canvas for name, canvas in canvases.items()}
-        for process in self._processes:
-            for hint in process.hints:
+        for operation in self._operations:
+            for hint in operation.hints:
                 hint.visualize(canvas)
