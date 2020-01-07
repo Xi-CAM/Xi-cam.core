@@ -11,7 +11,7 @@ class DaskExecutor(object):
         self.client = None
 
     def execute(self, wf, client=None):
-        if not wf.processes:
+        if not wf.operations:
             return {}
 
         if client is None:
