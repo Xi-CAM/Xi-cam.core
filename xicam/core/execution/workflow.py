@@ -131,10 +131,18 @@ class Workflow(object):
             self.autoConnectAll()
 
     def removeOperation(self, operation: OperationPlugin = None, index=None, autoconnectall=False):
+        # Note: It is not necessary to disconnect operations, since they operate with weakrefs; it is done here for completeness
+        for possible_linked_operation in self.operations:
+            for link in possible_linked_operation._inbound_links:
+                if link[0]() == operation:
+                    possible_linked_operation._inbound_links.remove(link)
+
+        operation._inbound_links.clear()
+
         if not operation:
             operation = self._operations[index]
         self._operations.remove(operation)
-        operation.detach()
+        # operation.detach()  # this wasn't doing anything; what was it for?
         operation._workflow = None
         if autoconnectall:
             self.autoConnectAll()
@@ -144,63 +152,43 @@ class Workflow(object):
         self.clearConnections()
 
         # for each operation
-        for inputoperation in self.operations:
+        for input_operation in self.operations:
 
             # for each input of given operation
-            for input in inputoperation.inputs.values():
+            for input_name in input_operation.input_names():
                 bestmatch = None
                 matchness = 0
                 # Parse backwards from the given operation, looking for matching outputs
-                for outputoperation in reversed(self.operations[: self.operations.index(inputoperation)]):
+                for output_operation in reversed(self.operations[: self.operations.index(input_operation)]):
                     # check each output
-                    for output in outputoperation.outputs.values():
+                    for output_name in output_operation.output_names:
                         # if matching name
-                        if output.name == input.name:
+                        if output_name == input_name:
                             # if a name match hasn't been found
                             if matchness < 1:
-                                bestmatch = output
+                                bestmatch = output_operation, output_name
                                 matchness = 1
                                 # if a name+type match hasn't been found
-                                if output.type == input.type:
+                                if output_operation.output_types[output_name] == input_operation.input_types[
+                                    input_name]:
                                     if matchness < 2:
-                                        bestmatch = output
+                                        bestmatch = output_operation, output_name
                                         matchness = 2
                 if bestmatch:
-                    bestmatch.connect(input)
+                    bestmatch[0].link(bestmatch[0], input_name, bestmatch[1])
                     msg.logMessage(
-                        f"connected {bestmatch.parent.__class__.__name__}:{bestmatch.name} to {input.parent.__class__.__name__}:{input.name}",
+                        f"connected {bestmatch[0].name}:{bestmatch[1]} to {input_operation.name}:{input_name}",
                         level=msg.DEBUG,
                     )
 
-                    # # for each output of given process
-                    # for output in process.outputs.values():
-                    #     bestmatch = None
-                    #     matchness = 0
-                    #     # Parse backwards from the given process, looking for matching outputs
-                    #     for process in self.processes[self.processes.index(process) + 1:]:
-                    #         # check each output
-                    #         for input in process.inputs.values():
-                    #             # if matching name
-                    #             if output.name == input.name:
-                    #                 # if a name match hasn't been found
-                    #                 if matchness < 1:
-                    #                     bestmatch = input
-                    #                     matchness = 1
-                    #                     # if a name+type match hasn't been found
-                    #                     if output.type == input.type:
-                    #                         if matchness < 2:
-                    #                             bestmatch = input
-                    #                             matchness = 2
-                    #     if bestmatch:
-                    #         output.connect(bestmatch)
-
     def clearConnections(self):
         for operation in self.operations:
-            operation.clearConnections()
+            operation._inbound_links.clear()
 
-    def toggleDisableOperation(self, operation, autoconnectall=False):
-        operation.disabled = not operation.disabled
-        operation.clearConnections()
+    def setDisabled(self, operation: OperationPlugin, value: bool = True, autoconnectall: bool = False):
+        operation.disabled = value
+        if value:
+            operation._inbound_links.clear()
         if autoconnectall:
             self.autoConnectAll()
         self.update()
