@@ -19,10 +19,10 @@ class DaskExecutor(object):
                 self.client = distributed.Client()
             client = self.client
 
-        dsk = wf.convertGraph()
+        dask_graph, end_task_ids = wf.convertGraph()
 
         # with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
-        result = client.get(dsk[0], dsk[1])
+        result = client.get(dask_graph, end_task_ids)
 
         msg.logMessage("result:", result, level=msg.DEBUG)
         # path = user_config_dir('xicam/profile.html')
