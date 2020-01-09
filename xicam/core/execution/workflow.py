@@ -155,7 +155,7 @@ class Graph(object):
         for input_operation in self.operations:
 
             # for each input of given operation
-            for input_name in input_operation.input_names():
+            for input_name in input_operation.input_names:
                 bestmatch = None
                 matchness = 0
                 # Parse backwards from the given operation, looking for matching outputs
