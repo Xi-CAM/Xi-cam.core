@@ -148,6 +148,9 @@ class Graph(object):
         self.notify()
         return orphaned_links
 
+    def toggle_disabled(self, operation: OperationPlugin, remove_orphan_links=True):
+        return self.set_disabled(operation, not operation.disabled, remove_orphan_links)
+
     def auto_connect_all(self):
         self.clear_links()
 
