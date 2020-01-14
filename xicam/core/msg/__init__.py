@@ -26,25 +26,14 @@ can be displayed in the main Xi-cam window using showProgress and showMessage.
 statusbar = None
 progressbar = None
 os.makedirs(os.path.join(paths.user_cache_dir, "logs"), exist_ok=True)
-logging.basicConfig(filename=os.path.join(paths.user_cache_dir, "logs", "out.log"), level=logging.DEBUG)
 
-blacklist = [
-    "fabio.edfimage",
-    "ipykernel.inprocess.ipkernel",
-    "pyFAI.azimuthalIntegrator",
-    "traitlets",
-    "fabio.openimage",
-    "fabio.fabioutils",
-    "PyQt5.uic.uiparser",
-    "yapsy",
-    "caproto.threading.client",
-    "caproto._circuit",
-    "caproto",
-]
-
-for modname in blacklist:
-    logging.getLogger(modname).setLevel(logging.ERROR)
-stdch = logging.StreamHandler()
+logger = logging.getLogger('xicam')
+logger.setLevel('DEBUG')  # minimum level shown
+handler = logging.StreamHandler()
+handler.setLevel('DEBUG')  # minimum level shown
+formatter = logging.Formatter("%(asctime)s - %(name) - %(caller_name)s - "
+                              "%(levelname) %(threadName)d - %(message)s")
+handler.setFormatter(formatter)
 
 # Log levels constants
 DEBUG = logging.DEBUG  # 10
@@ -215,34 +204,11 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
     # Join the args to a string
     s = " ".join(map(str, args))
 
-    # ATTENTION: loggername is 'intelligently' determined with inspect. You probably want to leave it None.
-    if not loggername:
-        loggername = inspect.stack()[1][3]
-    logger = logging.getLogger(loggername)
-    logger.setLevel(DEBUG)
-
-    # Set the logging level
-    try:
-        stdch.setLevel(level)
-    except ValueError:
-        level = logging.CRITICAL
-        logger.log("Unrecognized logger level for following message...", level)
-    logger.addHandler(stdch)
-
-    # Make timestamp
-    if timestamp is None:
-        timestamp = time.asctime()
-
-    # Lookup levelname from level
-    levelname = levels[level]
-
-    if threading.current_thread() is threading.main_thread():
-        thread = "M"
-    else:
-        thread = str(threadIds[threading.get_ident()])
-
-    # LOG IT!
-    logger.log(level, f"{timestamp} - {loggername} - {levelname} - {thread} - {s}")
+    if loggername is not None:
+        warings.warn("Custom loggername is no longer supported, "
+                     "ignored.")
+    caller_name = inspect.stack()[1][3]
+    logger.log(level, message, extra={'caller_name': caller_name})
 
     # Also, print message to stdout
     # try:
