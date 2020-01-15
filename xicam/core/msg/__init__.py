@@ -34,8 +34,8 @@ logger.setLevel('DEBUG')  # minimum level shown
 handler = logging.StreamHandler()
 handler.setLevel('DEBUG')  # minimum level shown
 #format = "%(asctime)s - %(name)s - %(module)s:%(lineno)d - %(funcName)s - "
-format = "%(asctime)s - %(levelname)s - %(thread)d:%(threadName)s - %(message)s"
-date_format = "%y-%m-%d %H:%M:%S"
+format = "%(asctime)s - %(caller_name)s - %(levelname)s - %(threadName)s - %(message)s"
+date_format = "%a %b %d %H:%M:%S %Y"
 formatter = logging.Formatter(fmt=format, datefmt=date_format)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
