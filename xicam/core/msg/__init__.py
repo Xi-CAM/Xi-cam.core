@@ -11,6 +11,7 @@ import threading
 from collections import defaultdict
 from qtpy.QtCore import QTimer
 from xicam.core import paths
+from contextlib import contextmanager
 
 """
 This module provides application-wide logging tools. Unhandled exceptions are hooked into the log. Messages and progress
@@ -244,7 +245,27 @@ def logError(exception: Exception, value=None, tb=None, **kwargs):
         logMessage("\n", *traceback.format_exception(exception, value, tb), **kwargs)
     except AttributeError:
         logMessage("\n", *traceback.format_exception_only(exception, value), **kwargs)
+        
+cumulative_time = defaultdict(lambda: 0)
 
+@contextmanager
+def logTime(*args: Any, level: int = INFO,
+            loggername: str = None,
+            timestamp: str = None,
+            suppressreprint: bool = False,
+            cumulative_key: str = '') -> None:
+
+    start = time.clock_gettime_ns(time.CLOCK_THREAD_CPUTIME_ID)
+    yield
+    elapsed_time = time.clock_gettime_ns(time.CLOCK_THREAD_CPUTIME_ID) - start
+
+    if cumulative_key:
+        cumulative_time[cumulative_key] += elapsed_time
+        extra_args = [f"cumulative elapsed: {cumulative_time[cumulative_key]/1e6} ms elapsed: {elapsed_time/1e6} ms elapsed"]
+    else:
+        extra_args = [f"elapsed: {elapsed_time/1e6} ms elapsed"]
+
+    logMessage(*(args + extra_args), level, loggername, timestamp, suppressreprint)
 
 import sys
 
