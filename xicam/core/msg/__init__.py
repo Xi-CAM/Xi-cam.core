@@ -208,7 +208,7 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
     if loggername is not None:
         warings.warn("Custom loggername is no longer supported, "
                      "ignored.")
-    caller_name = inspect.stack()[1][3]
+    caller_name = sys._getframe().f_back.f_code.co_name
     logger.log(level, message, extra={'caller_name': caller_name})
 
     # Also, print message to stdout
@@ -239,7 +239,7 @@ def logError(exception: Exception, value=None, tb=None, **kwargs):
         tb = exception.__traceback__
     kwargs["level"] = ERROR
     if 'loggername' not in kwargs:
-        kwargs['loggername'] = inspect.stack()[1][3]
+        kwargs['loggername'] = sys._getframe().f_back.f_code.co_name
     logMessage("\n", "The following error was handled safely by Xi-cam. It is displayed here for debugging.", **kwargs)
     try:
         logMessage("\n", *traceback.format_exception(exception, value, tb), **kwargs)
