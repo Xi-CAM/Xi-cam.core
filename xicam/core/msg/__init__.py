@@ -32,7 +32,7 @@ logger.setLevel('DEBUG')  # minimum level shown
 handler = logging.StreamHandler()
 handler.setLevel('DEBUG')  # minimum level shown
 formatter = logging.Formatter("%(asctime)s - %(name) - %(caller_name)s - "
-                              "%(levelname) %(threadName)d - %(message)s")
+                              "%(levelname) - %(thread)d:%(threadName)s - %(message)s")
 handler.setFormatter(formatter)
 
 # Log levels constants
