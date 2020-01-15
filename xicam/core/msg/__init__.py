@@ -203,7 +203,7 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
     """
 
     # Join the args to a string
-    s = " ".join(map(str, args))
+    message = " ".join(map(str, args))
 
     if loggername is not None:
         warings.warn("Custom loggername is no longer supported, "
