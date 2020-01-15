@@ -5,6 +5,7 @@ import signal
 import sys
 import os
 import time
+import warnings
 from typing import Any
 import traceback
 import threading
@@ -32,9 +33,12 @@ logger = logging.getLogger('xicam')
 logger.setLevel('DEBUG')  # minimum level shown
 handler = logging.StreamHandler()
 handler.setLevel('DEBUG')  # minimum level shown
-formatter = logging.Formatter("%(asctime)s - %(name) - %(caller_name)s - "
-                              "%(levelname) - %(thread)d:%(threadName)s - %(message)s")
+#format = "%(asctime)s - %(name)s - %(module)s:%(lineno)d - %(funcName)s - "
+format = "%(asctime)s - %(levelname)s - %(thread)d:%(threadName)s - %(message)s"
+date_format = "%y-%m-%d %H:%M:%S"
+formatter = logging.Formatter(fmt=format, datefmt=date_format)
 handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 # Log levels constants
 DEBUG = logging.DEBUG  # 10
@@ -206,16 +210,10 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
     message = " ".join(map(str, args))
 
     if loggername is not None:
-        warings.warn("Custom loggername is no longer supported, "
+        warnings.warn("Custom loggername is no longer supported, "
                      "ignored.")
     caller_name = sys._getframe().f_back.f_code.co_name
     logger.log(level, message, extra={'caller_name': caller_name})
-
-    # Also, print message to stdout
-    # try:
-    #     if not suppressreprint: print(f'{timestamp} - {loggername} - {levelname} - {s}')
-    # except UnicodeEncodeError:
-    #     print('A unicode string could not be written to console. Some logging will not be displayed.')
 
 
 def clearMessage():
