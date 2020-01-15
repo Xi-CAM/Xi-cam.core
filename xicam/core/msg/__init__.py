@@ -111,7 +111,7 @@ def hideBusy():
         from .. import threads  # must be a late import
 
         threads.invoke_in_main_thread(progressbar.hide)
-        progressbar.setRange(0, 100)
+        threads.invoke_in_main_thread(progressbar.setRange, 0, 100)
 
 
 # aliases
