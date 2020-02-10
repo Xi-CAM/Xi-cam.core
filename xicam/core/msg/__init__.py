@@ -1,50 +1,29 @@
-import inspect
+"""This module provides application-wide logging tools.
+
+Unhandled exceptions are hooked into the log. Messages and progress
+can be displayed in the main Xi-cam window using showProgress and showMessage.
+
+Constants
+---------
+FILE_LOG_LEVEL_SETTINGS_NAME : str
+    Name of the settings value for defining the file logging level.
+STREAM_LOG_LEVEL_SETTINGS_NAME : str
+    Name of the settings value for defining the stream logging level.
+
+"""
 import logging
 import faulthandler
-import signal
 import sys
 import os
 import time
+import warnings
 from typing import Any
 import traceback
-import threading
 from collections import defaultdict
-from qtpy.QtCore import QTimer
+from qtpy.QtCore import QSettings, QTimer
 from xicam.core import paths
+from contextlib import contextmanager
 
-"""
-This module provides application-wide logging tools. Unhandled exceptions are hooked into the log. Messages and progress
-can be displayed in the main Xi-cam window using showProgress and showMessage.
-
-"""
-
-# TODO: Add logging for images
-# TODO: Add icons in GUI reflection
-
-
-# GUI widgets are registered into these slots to display messages/progress
-statusbar = None
-progressbar = None
-os.makedirs(os.path.join(paths.user_cache_dir, "logs"), exist_ok=True)
-logging.basicConfig(filename=os.path.join(paths.user_cache_dir, "logs", "out.log"), level=logging.DEBUG)
-
-blacklist = [
-    "fabio.edfimage",
-    "ipykernel.inprocess.ipkernel",
-    "pyFAI.azimuthalIntegrator",
-    "traitlets",
-    "fabio.openimage",
-    "fabio.fabioutils",
-    "PyQt5.uic.uiparser",
-    "yapsy",
-    "caproto.threading.client",
-    "caproto._circuit",
-    "caproto",
-]
-
-for modname in blacklist:
-    logging.getLogger(modname).setLevel(logging.ERROR)
-stdch = logging.StreamHandler()
 
 # Log levels constants
 DEBUG = logging.DEBUG  # 10
@@ -54,6 +33,44 @@ ERROR = logging.ERROR  # 40
 CRITICAL = logging.CRITICAL  # 50
 
 levels = {DEBUG: "DEBUG", INFO: "INFO", WARNING: "WARNING", ERROR: "ERROR", CRITICAL: "CRITICAL"}
+
+# TODO: Add logging for images
+# TODO: Add icons in GUI reflection
+
+# GUI widgets are registered into these slots to display messages/progress
+statusbar = None
+progressbar = None
+
+# Create a log file that captures all logs (DEBUG)
+log_dir = os.path.join(paths.user_cache_dir, "logs")
+os.makedirs(log_dir, exist_ok=True)
+log_file = "out.log"
+logger = logging.getLogger('xicam')
+logger.setLevel('DEBUG')  # minimum level shown
+
+# Create a formatter that all handlers below can use for formatting their log messages
+#format = "%(asctime)s - %(name)s - %(module)s:%(lineno)d - %(funcName)s - "
+format = "%(asctime)s - %(caller_name)s - %(levelname)s - %(threadName)s - %(message)s"
+date_format = "%a %b %d %H:%M:%S %Y"
+formatter = logging.Formatter(fmt=format, datefmt=date_format)
+
+# By default, append to the log file
+DEFAULT_FILE_LOG_LEVEL = DEBUG
+FILE_LOG_LEVEL_SETTINGS_NAME = "file_log_level"
+file_log_level = int(QSettings().value(FILE_LOG_LEVEL_SETTINGS_NAME, DEFAULT_FILE_LOG_LEVEL))
+file_handler = logging.FileHandler(os.path.join(log_dir, log_file))
+file_handler.setLevel(file_log_level)  # minimum level shown
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Create a stream handler that shows WARNING, ERROR, CRITICAL log messages (attaches to sys.stderr by default)
+DEFAULT_STREAM_LOG_LEVEL = WARNING
+STREAM_LOG_LEVEL_SETTINGS_NAME = "stream_log_level"
+stream_log_level = int(QSettings().value(STREAM_LOG_LEVEL_SETTINGS_NAME, DEFAULT_STREAM_LOG_LEVEL))
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(stream_log_level)  # minimum level shown
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
 
 trayicon = None
 if "qtpy" in sys.modules:
@@ -118,8 +135,10 @@ def hideBusy():
 
     """
     if progressbar:
-        progressbar.hide()
-        progressbar.setRange(0, 100)
+        from .. import threads  # must be a late import
+
+        threads.invoke_in_main_thread(progressbar.hide)
+        threads.invoke_in_main_thread(progressbar.setRange, 0, 100)
 
 
 # aliases
@@ -182,7 +201,8 @@ def showMessage(*args, timeout=5, **kwargs):
     """
     s = " ".join(args)
     if statusbar is not None:
-        statusbar.showMessage(s, timeout * 1000)
+        from .. import threads  # must be a late import
+        threads.invoke_in_main_thread(statusbar.showMessage, s, timeout * 1000)
 
     logMessage(*args, **kwargs)
 
@@ -210,49 +230,22 @@ def logMessage(*args: Any, level: int = INFO, loggername: str = None, timestamp:
     """
 
     # Join the args to a string
-    s = " ".join(map(str, args))
+    message = " ".join(map(str, args))
 
-    # ATTENTION: loggername is 'intelligently' determined with inspect. You probably want to leave it None.
-    if not loggername:
-        loggername = inspect.stack()[1][3]
-    logger = logging.getLogger(loggername)
-    logger.setLevel(DEBUG)
-
-    # Set the logging level
-    try:
-        stdch.setLevel(level)
-    except ValueError:
-        level = logging.CRITICAL
-        logger.log("Unrecognized logger level for following message...", level)
-    logger.addHandler(stdch)
-
-    # Make timestamp
-    if timestamp is None:
-        timestamp = time.asctime()
-
-    # Lookup levelname from level
-    levelname = levels[level]
-
-    if threading.current_thread() is threading.main_thread():
-        thread = "M"
-    else:
-        thread = str(threadIds[threading.get_ident()])
-
-    # LOG IT!
-    logger.log(level, f"{timestamp} - {loggername} - {levelname} - {thread} - {s}")
-
-    # Also, print message to stdout
-    # try:
-    #     if not suppressreprint: print(f'{timestamp} - {loggername} - {levelname} - {s}')
-    # except UnicodeEncodeError:
-    #     print('A unicode string could not be written to console. Some logging will not be displayed.')
+    if loggername is not None:
+        warnings.warn("Custom loggername is no longer supported, "
+                     "ignored.")
+    caller_name = sys._getframe().f_back.f_code.co_name
+    logger.log(level, message, extra={'caller_name': caller_name})
 
 
 def clearMessage():
     """
     Clear messages from the statusbar
     """
-    statusbar.clearMessage()
+    from .. import threads  # must be a late import
+
+    threads.invoke_in_main_thread(statusbar.clearMessage)
 
 
 def logError(exception: Exception, value=None, tb=None, **kwargs):
@@ -267,13 +260,33 @@ def logError(exception: Exception, value=None, tb=None, **kwargs):
         tb = exception.__traceback__
     kwargs["level"] = ERROR
     if 'loggername' not in kwargs:
-        kwargs['loggername'] = inspect.stack()[1][3]
+        kwargs['loggername'] = sys._getframe().f_back.f_code.co_name
     logMessage("\n", "The following error was handled safely by Xi-cam. It is displayed here for debugging.", **kwargs)
     try:
         logMessage("\n", *traceback.format_exception(exception, value, tb), **kwargs)
     except AttributeError:
         logMessage("\n", *traceback.format_exception_only(exception, value), **kwargs)
+        
+cumulative_time = defaultdict(lambda: 0)
 
+@contextmanager
+def logTime(*args: Any, level: int = INFO,
+            loggername: str = None,
+            timestamp: str = None,
+            suppressreprint: bool = False,
+            cumulative_key: str = '') -> None:
+
+    start = time.clock_gettime_ns(time.CLOCK_THREAD_CPUTIME_ID)
+    yield
+    elapsed_time = time.clock_gettime_ns(time.CLOCK_THREAD_CPUTIME_ID) - start
+
+    if cumulative_key:
+        cumulative_time[cumulative_key] += elapsed_time
+        extra_args = [f"cumulative elapsed: {cumulative_time[cumulative_key]/1e6} ms elapsed: {elapsed_time/1e6} ms elapsed"]
+    else:
+        extra_args = [f"elapsed: {elapsed_time/1e6} ms elapsed"]
+
+    logMessage(*(args + extra_args), level, loggername, timestamp, suppressreprint)
 
 import sys
 
