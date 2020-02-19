@@ -22,6 +22,8 @@ class Graph(object):
             self.insert_operation(len(self._operations) + 1, operation)
 
     def insert_operation(self, index: int, operation: OperationPlugin):
+        if not isinstance(operation, OperationPlugin):
+            raise TypeError(f"expected \'{operation}\' to be an OperationPlugin")
         self._operations.insert(index, operation)
         operation._workflow = ref(self)
 
