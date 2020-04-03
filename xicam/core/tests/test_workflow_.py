@@ -1,15 +1,14 @@
 import pytest
 
+from xicam.core import execution
+from xicam.core.execution import localexecutor
 from xicam.core.execution.workflow import Graph, Workflow
 from xicam.plugins import OperationPlugin
 
 
-
-# TODO clean up tests w/ multiple asserts (search on stackoverflow)
-# TODO operationplugin, ensure output_names passed a tuple/list (not a bare string)
+# Note that this test relies on the xicam.plugins module
 # TODO prevent adding circular links
-# TODO figure out how to test as_dask_graph
-   # what should as_dask_graph give us? 
+execution.executor = localexecutor.LocalExecutor()
 
 @pytest.fixture
 def graph():
@@ -529,15 +528,19 @@ class TestWorkflow:
 
     def test_execute_no_links(self, sum_op, square_op, negative_op):
         def cb(*results):
-            import pdb
-            pdb.set_trace
-            x = 23
+            print()
         operations = [sum_op, square_op, negative_op]
-        workflow = Workflow(name="", operations=operations)
+        workflow = Workflow(name="test", operations=operations)
         workflow.execute(callback_slot=cb)
+        assert True
 
-    def test_execute_synchronous(self):
+    def test_execute_synchronous_no_links(self, sum_op, square_op, negative_op):
         assert False
+        # def cb(*results):
+        #     x = 23
+        # operations = [sum_op, square_op, negative_op]
+        # workflow = Workflow(name="test", operations=operations)
+        # workflow.execute(callback_slot=cb)
 
     def test_execute_all(self):
         assert False

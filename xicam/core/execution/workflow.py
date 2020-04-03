@@ -7,10 +7,6 @@ from weakref import ref
 
 
 # TODO: add debug flag that checks mutations by hashing inputs
-
-# TODO: should any checks for OperationPlugin be replaced by `callable`?
-#       -- NO: the graph should expect OperationPlugins, not just functions.
-
 class Graph(object):
     """Graph that represents operations as nodes and links as edges.
 
