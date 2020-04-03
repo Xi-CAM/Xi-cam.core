@@ -383,7 +383,7 @@ class TestGraph:
     def test_set_disabled_default_no_links(self, graph, sum_op):
         graph.add_operation(sum_op)
         return_value = graph.set_disabled(sum_op)
-        assert sum_op.disabled is True
+        assert graph.disabled(sum_op) is True
         assert return_value == []
 
     # TODO parameterize these tests
@@ -394,7 +394,7 @@ class TestGraph:
         graph.add_link(*link1)
         graph.add_link(*link2)
         return_value = graph.set_disabled(sum_op)
-        assert sum_op.disabled is True
+        assert graph.disabled(sum_op) is True
         assert graph.links() == [link2]
         assert return_value == []
 
@@ -405,7 +405,7 @@ class TestGraph:
         graph.add_link(*link1)
         graph.add_link(*link2)
         return_value = graph.set_disabled(sum_op, remove_orphan_links=False)
-        assert sum_op.disabled is True
+        assert graph.disabled(sum_op) is True
         assert graph.links() == [link1, link2]
         assert return_value == graph.operation_links(sum_op)
 
@@ -416,7 +416,7 @@ class TestGraph:
         graph.add_link(*link1)
         graph.add_link(*link2)
         return_value = graph.set_disabled(sum_op, value=False)
-        assert sum_op.disabled is False
+        assert graph.disabled(sum_op) is False
         assert graph.links() == [link1, link2]
         assert return_value == []
 
@@ -427,17 +427,17 @@ class TestGraph:
         graph.add_link(*link1)
         graph.add_link(*link2)
         return_value = graph.set_disabled(sum_op, value=False, remove_orphan_links=False)
-        assert sum_op.disabled is False
+        assert graph.disabled(sum_op) is False
         assert graph.links() == [link1, link2]
         assert return_value == []
 
     def test_toggle_disabled_default(self, graph, sum_op):
         graph.add_operation(sum_op)
         return_value = graph.toggle_disabled(sum_op)
-        assert sum_op.disabled is True
+        assert graph.disabled(sum_op) is True
         assert return_value == []
         return_value = graph.toggle_disabled(sum_op)
-        assert sum_op.disabled is False
+        assert graph.disabled(sum_op) is False
         assert return_value == []
 
     def test_toggle_disabled_with_links(self, graph, sum_op, square_op, negative_op):
@@ -447,11 +447,11 @@ class TestGraph:
         graph.add_link(*link1)
         graph.add_link(*link2)
         return_value = graph.toggle_disabled(sum_op)
-        assert sum_op.disabled is True
+        assert graph.disabled(sum_op) is True
         assert return_value == []
         assert graph.links() == [link2]
         return_value = graph.toggle_disabled(sum_op)
-        assert sum_op.disabled is False
+        assert graph.disabled(sum_op) is False
         assert return_value == []
         assert graph.links() == [link2]
 
@@ -462,11 +462,11 @@ class TestGraph:
         graph.add_link(*link1)
         graph.add_link(*link2)
         return_value = graph.toggle_disabled(sum_op, remove_orphan_links=False)
-        assert sum_op.disabled is True
+        assert graph.disabled(sum_op) is True
         assert return_value == graph.operation_links(sum_op)
         assert graph.links() == [link1, link2]
         return_value = graph.toggle_disabled(sum_op, remove_orphan_links=False)
-        assert sum_op.disabled is False
+        assert graph.disabled(sum_op) is False
         assert return_value == []
         assert graph.links() == [link1, link2]
 

@@ -22,6 +22,7 @@ class Graph(object):
         self._operations = []
         self._inbound_links = defaultdict(lambda: defaultdict(lambda: []))
         self._outbound_links = defaultdict(lambda: defaultdict(lambda: []))
+        self._disabled_operations = set()
 
     def add_operation(self, operation: OperationPlugin):
         """Add a single operation into the workflow."""
@@ -347,6 +348,25 @@ class Graph(object):
         return [(operation, dest, link[0], link[1]) for dest, links in
                 self._outbound_links[operation].items() for link in links]
 
+    def disabled_operations(self):
+        """Returns the disabled operations (if any) in the workflow."""
+        return self._disabled_operations
+
+    def disabled(self, operation):
+        """Indicate if the operation is disabled in the workflow.
+
+        Parameters
+        ----------
+        operation : OperationPlugin
+            Operation to check if it is disabled or not.
+
+        Returns
+        -------
+        bool
+            Returns True if the operation is disabled in the Workflow; otherwise False.
+        """
+        return operation in self._disabled_operations
+
     def set_disabled(self, operation: OperationPlugin, value: bool = True, remove_orphan_links: bool = True):
         """Set an operation's disabled state in the workflow.
 
@@ -371,7 +391,12 @@ class Graph(object):
             If enabling an operation (`value` is False), then an empty list is returned,
             as no links are changed.
         """
-        operation.disabled = value
+        if value:
+            self._disabled_operations.add(operation)
+        else:
+            if operation in self._disabled_operations:
+                self._disabled_operations.remove(operation)
+
         orphaned_links = []
         if value:
             if remove_orphan_links:
@@ -405,7 +430,10 @@ class Graph(object):
             and the connected operation is toggled to disabled.
 
         """
-        return self.set_disabled(operation, not operation.disabled, remove_orphan_links)
+        is_disabled = False
+        if operation in self._disabled_operations:
+            is_disabled = True
+        return self.set_disabled(operation, not is_disabled, remove_orphan_links)
 
     def auto_connect_all(self):
         """Attempts to automatically connect operations together by matching output names and input names.
