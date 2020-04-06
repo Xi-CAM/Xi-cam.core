@@ -4,6 +4,7 @@ from xicam.core import execution
 from xicam.core.execution import localexecutor
 from xicam.core.execution.workflow import Graph, Workflow
 from xicam.plugins import OperationPlugin
+from xicam.plugins.operationplugin import output_names
 
 
 # Note that this test relies on the xicam.plugins module
@@ -517,22 +518,78 @@ class TestGraph:
 
 
 class TestWorkflow:
+    # TODO: test callback_slot
+    # TODO: test finished_slot
+    # TODO: test except_slot
+    # TODO: test execute_all
 
     def test_execute_no_operations(self):
         workflow = Workflow("Test Workflow")
-        workflow.execute()
+        results = workflow.execute().result()
+        assert results is ({},)
 
-    def test_execute_one_operation(self):
+    def test_execute_operation_no_default_no_value(self, sum_op):
+        # not sure how to test this....
+        with pytest.raises(TypeError):
+            def handle_exception(exception):
+                raise exception
+            workflow = Workflow()
+            workflow.add_operation(sum_op)
+            results = workflow.execute(except_slot=handle_exception).result()
+            print(results)
+
+    def test_execute_operation_no_default(self, sum_op):
         workflow = Workflow()
-        workflow.add_operation()
+        workflow.add_operation(sum_op)
+        results = workflow.execute(n1=10, n2=5).result()
+        assert results == ({"sum": 15},)
 
-    def test_execute_no_links(self, sum_op, square_op, negative_op):
-        def cb(*results):
-            print()
+    def test_execute_operation_default_input_value(self):
+        @OperationPlugin
+        @output_names("doubled")
+        def double_op(x=10):
+            return x * 2
+        workflow = Workflow()
+        workflow.add_operation(double_op)
+        results = workflow.execute().result()
+        assert results == ({"doubled": 20},)
+
+    def test_execute_no_links_TODO(self, sum_op, square_op, negative_op):
+        # do the input names have to match in this case (more than one entry op)
         operations = [sum_op, square_op, negative_op]
         workflow = Workflow(name="test", operations=operations)
-        workflow.execute(callback_slot=cb)
-        assert True
+        results = workflow.execute(n1=3, n2=-3).result()
+        assert results == ({"sum": 0})
+
+    def test_execute_no_links(self):
+        @OperationPlugin
+        @output_names("doubled")
+        def double_op(n):
+            return n * 2
+
+        @OperationPlugin
+        @output_names("tripled")
+        def triple_op(n):
+            return n * 3
+
+        workflow = Workflow()
+        workflow.add_operations([double_op, triple_op])
+        results = workflow.execute(n=10).result()
+        assert len(results) == 2
+        assert {"doubled": 20} in results
+        assert {"tripled": 30} in results
+
+    def test_execute(self, sum_op, square_op, negative_op):
+        workflow = Workflow()
+        workflow.add_operations([sum_op, square_op, negative_op])
+        workflow.add_link(sum_op, square_op, "sum", "n")
+        workflow.add_link(square_op, negative_op, "square", "num")
+        results = workflow.execute(n1=2, n2=5).result()
+        # FAIL: "my_square() got an unexpected keyword argument 'n1'"
+        # -- investigate Workflow.filled_values
+        # -- investigate Operation.__call__
+        # -- TODO is this fixed if the ops have default values???
+        assert results is ({"negative": -49},)
 
     def test_execute_synchronous_no_links(self, sum_op, square_op, negative_op):
         assert False
@@ -542,8 +599,16 @@ class TestWorkflow:
         # workflow = Workflow(name="test", operations=operations)
         # workflow.execute(callback_slot=cb)
 
-    def test_execute_all(self):
-        assert False
+    def test_execute_all(self, sum_op, square_op):
+        workflow = Workflow()
+        workflow.add_operations([sum_op, square_op])
+        workflow.add_link(sum_op, square_op, "sum", "n")
+        n1_values = [1, 3, 5]
+        n2_values = [2, 4, 6]
+        results = workflow.execute_all(n1=n1_values, n2=n2_values).result()
+        import pdb;
+        pdb.set_trace()
+        print()
 
     def test_fill_kwargs(self):
         assert False
