@@ -615,6 +615,7 @@ class Workflow(Graph):
             self,
             callback_slot=callback_slot,
             finished_slot=finished_slot,
+            except_slot=except_slot,
             default_exhandle=default_exhandle,
             lock=lock,
             threadkey=threadkey,
@@ -636,7 +637,7 @@ class Workflow(Graph):
 
     def execute_all(
             self,
-            connection,
+            connection=None,
             executor=None,
             callback_slot=None,
             finished_slot=None,
@@ -678,6 +679,7 @@ class Workflow(Graph):
             self,
             callback_slot=callback_slot,
             finished_slot=finished_slot,
+            except_slot=except_slot,
             default_exhandle=default_exhandle,
             lock=lock,
             threadkey=threadkey,
