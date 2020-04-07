@@ -623,7 +623,7 @@ class Workflow(Graph):
         future.start()
         return future
 
-    def execute_synchronous(self, executor, connection=None, fill_kwargs=True, **kwargs):
+    def execute_synchronous(self, executor=None, connection=None, fill_kwargs=True, **kwargs):
         if not self.staged:
             self.stage(connection)
 
