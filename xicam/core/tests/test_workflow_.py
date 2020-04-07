@@ -585,30 +585,47 @@ class TestWorkflow:
         workflow.add_link(sum_op, square_op, "sum", "n")
         workflow.add_link(square_op, negative_op, "square", "num")
         results = workflow.execute(n1=2, n2=5).result()
-        # FAIL: "my_square() got an unexpected keyword argument 'n1'"
-        # -- investigate Workflow.filled_values
-        # -- investigate Operation.__call__
-        # -- TODO is this fixed if the ops have default values???
-        assert results is ({"negative": -49},)
+        assert results == ({"negative": -49},)
+
+    def test_execute_synchronous(self, sum_op, square_op, negative_op):
+        workflow = Workflow()
+        workflow.add_operations([sum_op, square_op, negative_op])
+        workflow.add_link(sum_op, square_op, "sum", "n")
+        workflow.add_link(square_op, negative_op, "square", "num")
+        results = workflow.execute_synchronous(n1=2, n2=5)
+        assert results == ({"negative": -49},)
+
+    def test_execute_synchronous_no_links_not_enough_kwargs(self, sum_op, square_op, negative_op):
+        # TODO -- expect exception
+        workflow = Workflow()
+        workflow.add_operations([sum_op, square_op, negative_op])
+        results = workflow.execute_synchronous(n1=2, n2=5)
+        assert results == ({"negative": -49},)
 
     def test_execute_synchronous_no_links(self, sum_op, square_op, negative_op):
-        assert False
-        # def cb(*results):
-        #     x = 23
-        # operations = [sum_op, square_op, negative_op]
-        # workflow = Workflow(name="test", operations=operations)
-        # workflow.execute(callback_slot=cb)
-
-    def test_execute_all(self, sum_op, square_op):
         workflow = Workflow()
-        workflow.add_operations([sum_op, square_op])
+        workflow.add_operations([sum_op, square_op, negative_op])
+        # n1, n2 -- inputs to sum_op;
+        # n -- input to square_op
+        # num -- input to negative_op
+        results = workflow.execute_synchronous(n1=2, n2=5, n=10, num=50)
+        assert len(results) == 3
+        assert {"sum": 7} in results
+        assert {"square": 100} in results
+        assert {"negative": -50} in results
+
+    def test_execute_all(self, sum_op, square_op, negative_op):
+        workflow = Workflow()
+        workflow.add_operations([sum_op, square_op, negative_op])
         workflow.add_link(sum_op, square_op, "sum", "n")
+        workflow.add_link(square_op, negative_op, "square", "num")
         n1_values = [1, 3, 5]
         n2_values = [2, 4, 6]
-        results = workflow.execute_all(n1=n1_values, n2=n2_values).result()
-        import pdb;
-        pdb.set_trace()
-        print()
+        # TODO -- we are only getting one result, should get three (3 pairs of n1/n2).
+        results = list(workflow.execute_all(n1=n1_values, n2=n2_values).result())
+        assert results == [{"negative": (1 + 2)**2 * -1},
+                           {"negative": (3 + 4)**2 * -1},
+                           {"negative": (5 + 6)**2 * -1}]
 
     def test_fill_kwargs(self):
         assert False
