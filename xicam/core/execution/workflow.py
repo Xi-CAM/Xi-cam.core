@@ -692,7 +692,9 @@ class Workflow(Graph):
         Fills in all empty inputs with names matching keys in kwargs.
         """
         for operation in self.operations:
-            operation.filled_values = kwargs
+            for key in kwargs:
+                if key in operation.input_names:
+                    operation.filled_values[key] = kwargs[key]
 
     def validate(self):
         """
