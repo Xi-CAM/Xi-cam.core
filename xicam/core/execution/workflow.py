@@ -18,6 +18,7 @@ class Graph(object):
     multiple inputs for operation B.
 
     """
+
     def __init__(self):
         self._operations = []
         self._inbound_links = defaultdict(lambda: defaultdict(lambda: []))
@@ -26,13 +27,15 @@ class Graph(object):
 
     def add_operation(self, operation: OperationPlugin):
         """Add a single operation into the workflow."""
-        self.add_operations([operation])
+        self.add_operations(operation)
 
-    def add_operations(self, operations: List[OperationPlugin]):
-        """Add a list of operations into the workflow.
+    def add_operations(self, *operations: OperationPlugin):
+        """Add operations into the workflow.
 
         This will add the list of operations to the end of the workflow.
         """
+        # NOTE: Because of some Pycharm bugs, class-decorators break type inspection; expect to get complaints
+        #       https://youtrack.jetbrains.com/issue/PY-27142
         for operation in operations:
             self.insert_operation(len(self._operations) + 1, operation)
 
@@ -558,7 +561,7 @@ class Workflow(Graph):
 
         if operations:
             # self._operations.extend(operations)
-            self.add_operations(operations)
+            self.add_operations(*operations)
         self.staged = False
 
         self.lastresult = []
