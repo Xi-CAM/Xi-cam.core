@@ -18,6 +18,7 @@ class Graph(object):
     multiple inputs for operation B.
 
     """
+
     def __init__(self):
         self._operations = []
         self._inbound_links = defaultdict(lambda: defaultdict(lambda: []))
@@ -26,13 +27,15 @@ class Graph(object):
 
     def add_operation(self, operation: OperationPlugin):
         """Add a single operation into the workflow."""
-        self.add_operations([operation])
+        self.add_operations(operation)
 
-    def add_operations(self, operations: List[OperationPlugin]):
-        """Add a list of operations into the workflow.
+    def add_operations(self, *operations: OperationPlugin):
+        """Add operations into the workflow.
 
         This will add the list of operations to the end of the workflow.
         """
+        # NOTE: Because of some Pycharm bugs, class-decorators break type inspection; expect to get complaints
+        #       https://youtrack.jetbrains.com/issue/PY-27142
         for operation in operations:
             self.insert_operation(len(self._operations) + 1, operation)
 
@@ -367,7 +370,8 @@ class Graph(object):
         """
         return operation in self._disabled_operations
 
-    def set_disabled(self, operation: OperationPlugin, value: bool = True, remove_orphan_links: bool = True):
+    def set_disabled(self, operation: OperationPlugin, value: bool = True, remove_orphan_links: bool = True,
+                     auto_connect_all: bool = True):
         """Set an operation's disabled state in the workflow.
 
         By default when disabling an operation, links connected to the operation will be removed.
@@ -404,10 +408,13 @@ class Graph(object):
             else:
                 orphaned_links = self.operation_links(operation)
 
+        if auto_connect_all:
+            self.auto_connect_all()
+
         self.notify()
         return orphaned_links
 
-    def toggle_disabled(self, operation: OperationPlugin, remove_orphan_links=True):
+    def toggle_disabled(self, operation: OperationPlugin, remove_orphan_links=True, auto_connect_all=True):
         """Toggle the disable state of an operation.
 
         By default, when an operation is toggled to a disabled state,
@@ -433,7 +440,7 @@ class Graph(object):
         is_disabled = False
         if operation in self._disabled_operations:
             is_disabled = True
-        return self.set_disabled(operation, not is_disabled, remove_orphan_links)
+        return self.set_disabled(operation, not is_disabled, remove_orphan_links, auto_connect_all)
 
     def auto_connect_all(self):
         """Attempts to automatically connect operations together by matching output names and input names.
@@ -558,7 +565,7 @@ class Workflow(Graph):
 
         if operations:
             # self._operations.extend(operations)
-            self.add_operations(operations)
+            self.add_operations(*operations)
         self.staged = False
 
         self.lastresult = []

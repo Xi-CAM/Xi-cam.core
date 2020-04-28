@@ -326,7 +326,8 @@ def method(
             )
             future.start()
             if block:
-                return future.result()
+                future.result()
+            return future
 
         return _runnable_method
 
